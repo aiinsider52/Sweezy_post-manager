@@ -10,6 +10,9 @@ const CATEGORY_BADGE: Record<GeneratedPost["category"], string> = {
 /** Leave room for the draft badge prefix in admin captions. */
 export const MAX_POST_TEXT_LENGTH = 960;
 
+export const CHANNEL_SIGNATURE =
+  `<a href="https://t.me/sweezyxswiss">Sweezy</a> | <a href="https://sweezy.world">sweezy.world</a> | Manager <a href="https://t.me/vladyslavarcher">@vladyslavarcher</a> <a href="https://t.me/yuliiaarcher">@yuliiaarcher</a> 🏹`;
+
 export function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -50,6 +53,7 @@ function build(content: PostContent, includeTakeaway: boolean): string {
 
   const label = escapeHtml((content.sourceLabel ?? "Джерело").trim() || "Джерело");
   blocks.push("", `🔗 <a href="${escapeHref(content.sourceUrl)}">${label}</a>`);
+  blocks.push("", CHANNEL_SIGNATURE);
   return blocks.join("\n").trim();
 }
 
@@ -70,7 +74,7 @@ export function formatPostHtml(content: PostContent): string {
   }
 
   const title = content.title.trim().slice(0, 60);
-  let body = (paragraphs[0] ?? "").slice(0, 420);
+  let body = (paragraphs[0] ?? "").slice(0, 360);
   html = build({ ...content, title, body, takeaway: "" }, false);
   while (html.length > MAX_POST_TEXT_LENGTH && body.length > 80) {
     body = body.slice(0, Math.max(80, body.length - 40));
@@ -82,4 +86,3 @@ export function formatPostHtml(content: PostContent): string {
 export function formatDraftCaption(postText: string, revisionCount: number): string {
   return `📝 <b>ЧЕРНЕТКА</b> · ред. #${revisionCount + 1}\n\n${postText}`;
 }
-

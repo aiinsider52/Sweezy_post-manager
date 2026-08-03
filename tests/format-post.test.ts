@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { escapeHtml, formatDraftCaption, formatPostHtml } from "../src/bot/format-post.js";
+import { CHANNEL_SIGNATURE, escapeHtml, formatDraftCaption, formatPostHtml } from "../src/bot/format-post.js";
 
 describe("formatPostHtml", () => {
-  it("builds a styled HTML caption with title, body, takeaway and source link", () => {
+  it("builds a styled HTML caption with title, body, takeaway, source and channel signature", () => {
     const html = formatPostHtml({
       title: "Нові правила <B>permit>",
       body: "Перший абзац.\n\nДругий абзац з деталями.",
@@ -17,6 +17,8 @@ describe("formatPostHtml", () => {
     expect(html).toContain("Другий абзац з деталями.");
     expect(html).toContain("<blockquote>💡 Перевірте умови на SEM</blockquote>");
     expect(html).toContain('<a href="https://example.com/a?x=1&amp;y=2">Джерело · SRF</a>');
+    expect(html).toContain(CHANNEL_SIGNATURE);
+    expect(html.endsWith("🏹")).toBe(true);
     expect(html).not.toContain("Джерело:");
   });
 
@@ -30,9 +32,10 @@ describe("formatPostHtml", () => {
     });
     expect(html.startsWith("✨ <b>Сирний день</b>")).toBe(true);
     expect(html).not.toContain("<blockquote>");
+    expect(html).toContain(CHANNEL_SIGNATURE);
   });
 
-  it("shrinks oversized captions to Telegram-safe length", () => {
+  it("shrinks oversized captions to Telegram-safe length and keeps signature", () => {
     const html = formatPostHtml({
       title: "Довгий заголовок про важливі правила для українців у Швейцарії",
       body: `${"Абзац один з деталями. ".repeat(40)}\n\n${"Абзац два з ще більшою кількістю тексту. ".repeat(40)}`,
@@ -43,7 +46,7 @@ describe("formatPostHtml", () => {
     });
     expect(html.length).toBeLessThanOrEqual(960);
     expect(html).toContain("<b>");
-    expect(html).toContain('<a href="');
+    expect(html).toContain(CHANNEL_SIGNATURE);
   });
 });
 
