@@ -31,6 +31,20 @@ describe("formatPostHtml", () => {
     expect(html.startsWith("✨ <b>Сирний день</b>")).toBe(true);
     expect(html).not.toContain("<blockquote>");
   });
+
+  it("shrinks oversized captions to Telegram-safe length", () => {
+    const html = formatPostHtml({
+      title: "Довгий заголовок про важливі правила для українців у Швейцарії",
+      body: `${"Абзац один з деталями. ".repeat(40)}\n\n${"Абзац два з ще більшою кількістю тексту. ".repeat(40)}`,
+      takeaway: "Дуже довгий практичний висновок ".repeat(10),
+      sourceUrl: "https://example.com/very/long/path/to/article?query=1&more=2",
+      sourceLabel: "Джерело · SRF News Switzerland",
+      category: "useful_news"
+    });
+    expect(html.length).toBeLessThanOrEqual(960);
+    expect(html).toContain("<b>");
+    expect(html).toContain('<a href="');
+  });
 });
 
 describe("formatDraftCaption", () => {

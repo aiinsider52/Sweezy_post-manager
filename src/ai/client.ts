@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { z } from "zod";
 import { config } from "../config.js";
 import type { GeneratedPost, NewsItem, Post } from "../types.js";
-import { formatPostHtml } from "../bot/format-post.js";
+import { formatPostHtml, MAX_POST_TEXT_LENGTH } from "../bot/format-post.js";
 import { buildRevisionPrompt, buildSelectionPrompt } from "./prompts.js";
 
 const selectionSchema = z.object({
@@ -15,7 +15,7 @@ const selectionSchema = z.object({
   imagePrompt: z.string(),
   category: z.enum(["product", "useful_news", "light", "skip"])
 });
-const revisionSchema = z.object({ text: z.string().min(1).max(1024), imagePrompt: z.string(), regenerateImage: z.boolean() });
+const revisionSchema = z.object({ text: z.string().min(1).max(MAX_POST_TEXT_LENGTH), imagePrompt: z.string(), regenerateImage: z.boolean() });
 
 export class AiService {
   private client = new OpenAI({ apiKey: config.OPENAI_API_KEY });
@@ -32,15 +32,15 @@ export class AiService {
     const accepted = parsed.accepted && Boolean(item);
     const text = accepted && item
       ? formatPostHtml({
-          title: parsed.title,
-          body: parsed.body,
-          takeaway: parsed.takeaway,
+          title: parsed.title.slice(0, 70),
+          body: parsed.body.slice(0, 650),
+          takeaway: parsed.takeaway.slice(0, 120),
           sourceUrl: item.url,
           sourceLabel: `Джерело · ${item.source}`,
           category: parsed.category
         })
       : "";
-    if (text.length > 1024) throw new Error(`Generated caption exceeds Telegram limit: ${text.length}`);
+    if (text.length > MAX_POST_TEXT_LENGTH) throw new Error(`Generated caption exceeds Telegram limit: ${text.length}`);
     return {
       generated: {
         accepted,
