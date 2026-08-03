@@ -7,13 +7,13 @@ import { buildRevisionPrompt, buildSelectionPrompt } from "./prompts.js";
 
 const selectionSchema = z.object({
   accepted: z.boolean(),
-  reason: z.string(),
-  selectedUrl: z.string(),
+  reason: z.string().default(""),
+  selectedUrl: z.string().default(""),
   title: z.string().default(""),
   body: z.string().default(""),
   takeaway: z.string().default(""),
-  imagePrompt: z.string(),
-  category: z.enum(["product", "useful_news", "light", "skip"])
+  imagePrompt: z.string().default(""),
+  category: z.enum(["product", "useful_news", "light", "skip"]).catch("useful_news")
 });
 const revisionSchema = z.object({ text: z.string().min(1).max(MAX_POST_TEXT_LENGTH), imagePrompt: z.string(), regenerateImage: z.boolean() });
 
@@ -27,9 +27,17 @@ export class AiService {
       response_format: { type: "json_object" },
       messages: [{ role: "user", content: buildSelectionPrompt(items) }]
     });
-    const parsed = selectionSchema.parse(JSON.parse(completion.choices[0]?.message.content ?? "{}"));
+    const raw = JSON.parse(completion.choices[0]?.message.content ?? "{}") as Record<string, unknown>;
+    // Back-compat if model still returns a single "text" field.
+    if ((!raw.title || !raw.body) && typeof raw.text === "string") {
+      const plain = String(raw.text);
+      const [firstLine, ...rest] = plain.split("\n").map((line) => line.trim()).filter(Boolean);
+      raw.title = raw.title || firstLine || "Новина зі Швейцарії";
+      raw.body = raw.body || (rest.join("\n\n") || plain);
+    }
+    const parsed = selectionSchema.parse(raw);
     const item = items.find((candidate) => candidate.url === parsed.selectedUrl) ?? null;
-    const accepted = parsed.accepted && Boolean(item);
+    const accepted = parsed.accepted && Boolean(item) && Boolean(parsed.title.trim()) && Boolean(parsed.body.trim());
     const text = accepted && item
       ? formatPostHtml({
           title: parsed.title.slice(0, 70),
@@ -37,7 +45,7 @@ export class AiService {
           takeaway: parsed.takeaway.slice(0, 120),
           sourceUrl: item.url,
           sourceLabel: `Джерело · ${item.source}`,
-          category: parsed.category
+          category: parsed.category === "skip" ? "useful_news" : parsed.category
         })
       : "";
     if (text.length > MAX_POST_TEXT_LENGTH) throw new Error(`Generated caption exceeds Telegram limit: ${text.length}`);
@@ -46,7 +54,7 @@ export class AiService {
         accepted,
         reason: parsed.reason,
         text,
-        imagePrompt: parsed.imagePrompt,
+        imagePrompt: parsed.imagePrompt || "Editorial photo of Switzerland, natural light, no text",
         category: parsed.category
       },
       item
