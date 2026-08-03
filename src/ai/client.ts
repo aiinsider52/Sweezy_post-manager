@@ -2,10 +2,17 @@ import OpenAI from "openai";
 import { z } from "zod";
 import { config } from "../config.js";
 import type { GeneratedPost, NewsItem, Post } from "../types.js";
+import { formatPostHtml } from "../bot/format-post.js";
 import { buildRevisionPrompt, buildSelectionPrompt } from "./prompts.js";
 
 const selectionSchema = z.object({
-  accepted: z.boolean(), reason: z.string(), selectedUrl: z.string(), text: z.string().max(950), imagePrompt: z.string(),
+  accepted: z.boolean(),
+  reason: z.string(),
+  selectedUrl: z.string(),
+  title: z.string().default(""),
+  body: z.string().default(""),
+  takeaway: z.string().default(""),
+  imagePrompt: z.string(),
   category: z.enum(["product", "useful_news", "light", "skip"])
 });
 const revisionSchema = z.object({ text: z.string().min(1).max(1024), imagePrompt: z.string(), regenerateImage: z.boolean() });
@@ -16,13 +23,34 @@ export class AiService {
   async selectAndWrite(items: NewsItem[]): Promise<{ generated: GeneratedPost; item: NewsItem | null }> {
     const completion = await this.client.chat.completions.create({
       model: config.OPENAI_TEXT_MODEL,
-      temperature: 0.4,
+      temperature: 0.55,
       response_format: { type: "json_object" },
       messages: [{ role: "user", content: buildSelectionPrompt(items) }]
     });
     const parsed = selectionSchema.parse(JSON.parse(completion.choices[0]?.message.content ?? "{}"));
     const item = items.find((candidate) => candidate.url === parsed.selectedUrl) ?? null;
-    return { generated: { accepted: parsed.accepted && Boolean(item), reason: parsed.reason, text: parsed.text, imagePrompt: parsed.imagePrompt, category: parsed.category }, item };
+    const accepted = parsed.accepted && Boolean(item);
+    const text = accepted && item
+      ? formatPostHtml({
+          title: parsed.title,
+          body: parsed.body,
+          takeaway: parsed.takeaway,
+          sourceUrl: item.url,
+          sourceLabel: `Джерело · ${item.source}`,
+          category: parsed.category
+        })
+      : "";
+    if (text.length > 1024) throw new Error(`Generated caption exceeds Telegram limit: ${text.length}`);
+    return {
+      generated: {
+        accepted,
+        reason: parsed.reason,
+        text,
+        imagePrompt: parsed.imagePrompt,
+        category: parsed.category
+      },
+      item
+    };
   }
 
   async revise(post: Post, comment: string) {
