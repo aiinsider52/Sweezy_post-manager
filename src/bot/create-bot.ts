@@ -7,13 +7,23 @@ import { AiService } from "../ai/client.js";
 import { saveImage } from "../ai/image-store.js";
 import { publishPost, sendDraft } from "./send-post.js";
 
-export function createBot(store: Store, ai: AiService): Bot {
+export function createBot(store: Store, ai: AiService, runDraftJob?: () => Promise<void>): Bot {
   const bot = new Bot(config.BOT_TOKEN);
   bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
 
   bot.command("start", async (ctx) => {
     const own = ctx.chat.id === config.ADMIN_CHAT_ID;
-    await ctx.reply(own ? "Sweezy bot працює. Чернетки надходитимуть сюди." : `Ваш Telegram ID: ${ctx.chat.id}`);
+    await ctx.reply(own ? "Sweezy bot працює. Чернетки надходитимуть сюди. Команда /draft — тестовий прогін." : `Ваш Telegram ID: ${ctx.chat.id}`);
+  });
+
+  bot.command("draft", async (ctx) => {
+    if (ctx.from?.id !== config.ADMIN_CHAT_ID) return;
+    if (!runDraftJob) {
+      await ctx.reply("Job ще не готовий. Спробуйте за хвилину.");
+      return;
+    }
+    await ctx.reply("⏳ Створюю тестову чернетку…");
+    await runDraftJob();
   });
 
   bot.on("callback_query:data", async (ctx) => {

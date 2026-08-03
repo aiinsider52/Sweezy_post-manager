@@ -10,7 +10,10 @@ import { startHealthServer } from "./health.js";
 const store = createStore();
 await store.init();
 const ai = new AiService();
-const bot = createBot(store, ai);
+let draftJob: () => Promise<void> = async () => {
+  throw new Error("Draft job is not ready yet");
+};
+const bot = createBot(store, ai, () => draftJob());
 const healthServer = startHealthServer();
 
 async function verifyChannelPermissions(): Promise<void> {
@@ -28,8 +31,13 @@ async function verifyChannelPermissions(): Promise<void> {
 
 await bot.init();
 await verifyChannelPermissions();
-const draftJob = createDraftJob(store, ai, bot);
+draftJob = createDraftJob(store, ai, bot);
 const scheduledTask = startScheduler(draftJob);
+
+if (process.env.RUN_DRAFT_ON_START === "true") {
+  logger.info("RUN_DRAFT_ON_START=true — launching one-shot draft job");
+  void draftJob();
+}
 
 const stop = async (signal: string) => {
   logger.info({ signal }, "Shutting down");
