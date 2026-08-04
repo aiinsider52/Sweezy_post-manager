@@ -14,6 +14,7 @@ export function createDraftJob(store: Store, ai: AiService, bot: Bot): () => Pro
   return async () => {
     if (running) { logger.warn("Draft job skipped: previous run still active"); return; }
     running = true;
+    const started = Date.now();
     try {
       const all = await fetchNews(config.NEWS_API_KEY);
       const unseen = [];
@@ -44,10 +45,11 @@ export function createDraftJob(store: Store, ai: AiService, bot: Bot): () => Pro
       }
       await store.setReviewMessage(id, messageId);
       await store.markSeen(hashUrl(item.url));
-      logger.info({ postId: id, source: item.source }, "Draft sent for review");
+      logger.info({ postId: id, source: item.source, ms: Date.now() - started }, "Draft sent for review");
     } catch (error) {
-      logger.error({ err: error }, "Draft job failed");
+      logger.error({ err: error, ms: Date.now() - started }, "Draft job failed");
       await bot.api.sendMessage(config.ADMIN_CHAT_ID, `⚠️ Не вдалося створити чернетку: ${error instanceof Error ? error.message : "невідома помилка"}`).catch(() => undefined);
+      throw error;
     } finally { running = false; }
   };
 }

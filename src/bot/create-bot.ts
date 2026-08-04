@@ -22,8 +22,13 @@ export function createBot(store: Store, ai: AiService, runDraftJob?: () => Promi
       await ctx.reply("Job ще не готовий. Спробуйте за хвилину.");
       return;
     }
-    await ctx.reply("⏳ Створюю тестову чернетку…");
-    await runDraftJob();
+    await ctx.reply("⏳ Створюю чернетку (зазвичай 30–90 сек: новини → текст → картинка)…");
+    try {
+      await runDraftJob();
+    } catch (error) {
+      logger.error({ err: error }, "Manual /draft failed");
+      await ctx.reply(`❌ Не вдалося створити чернетку: ${error instanceof Error ? error.message : "невідома помилка"}`);
+    }
   });
 
   bot.on("callback_query:data", async (ctx) => {

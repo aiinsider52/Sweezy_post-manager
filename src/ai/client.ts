@@ -3,6 +3,7 @@ import { z } from "zod";
 import { config } from "../config.js";
 import type { GeneratedPost, NewsItem, Post } from "../types.js";
 import { formatPostHtml, MAX_POST_TEXT_LENGTH } from "../bot/format-post.js";
+import { logger } from "../logger.js";
 import { buildRevisionPrompt, buildSelectionPrompt } from "./prompts.js";
 
 const selectionSchema = z.object({
@@ -72,12 +73,22 @@ export class AiService {
   }
 
   async generateImage(prompt: string): Promise<Buffer> {
-    const result = await this.client.images.generate({ model: config.OPENAI_IMAGE_MODEL, prompt, size: "1024x1024", quality: "medium" });
+    const started = Date.now();
+    const result = await this.client.images.generate({
+      model: config.OPENAI_IMAGE_MODEL,
+      prompt,
+      size: "1024x1024",
+      quality: "low"
+    });
     const image = result.data?.[0];
-    if (image?.b64_json) return Buffer.from(image.b64_json, "base64");
+    if (image?.b64_json) {
+      logger.info({ ms: Date.now() - started }, "Image generated");
+      return Buffer.from(image.b64_json, "base64");
+    }
     if (image?.url) {
       const response = await fetch(image.url);
       if (!response.ok) throw new Error(`Image download failed: ${response.status}`);
+      logger.info({ ms: Date.now() - started }, "Image generated");
       return Buffer.from(await response.arrayBuffer());
     }
     throw new Error("OpenAI returned no image data");
