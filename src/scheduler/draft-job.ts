@@ -19,9 +19,10 @@ export function createDraftJob(store: Store, ai: AiService, bot: Bot): () => Pro
       const unseen = [];
       for (const item of all) {
         if (!(await store.hasSeen(hashUrl(item.url)))) unseen.push(item);
-        if (unseen.length >= 25) break;
+        if (unseen.length >= 35) break;
       }
       if (!unseen.length) { logger.info("No unseen news found"); return; }
+      logger.info({ candidates: unseen.length, top: unseen.slice(0, 5).map((i) => ({ source: i.source, title: i.title, publishedAt: i.publishedAt })) }, "Draft candidates");
       const { generated, item } = await ai.selectAndWrite(unseen);
       if (!generated.accepted || !item) { logger.info({ reason: generated.reason }, "LLM rejected news batch"); return; }
 

@@ -23,7 +23,7 @@ export class AiService {
   async selectAndWrite(items: NewsItem[]): Promise<{ generated: GeneratedPost; item: NewsItem | null }> {
     const completion = await this.client.chat.completions.create({
       model: config.OPENAI_TEXT_MODEL,
-      temperature: 0.55,
+      temperature: 0.6,
       response_format: { type: "json_object" },
       messages: [{ role: "user", content: buildSelectionPrompt(items) }]
     });
