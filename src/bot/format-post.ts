@@ -12,6 +12,7 @@ const CATEGORY_BADGE: Record<GeneratedPost["category"], string> = {
 export const MAX_POST_TEXT_LENGTH = 960;
 
 export const CHANNEL_SIGNATURE =
+  `🇨🇭 Sweezy — Life in Switzerland. Simplified.\n` +
   `<a href="https://t.me/sweezyxswiss">Sweezy</a> | <a href="https://sweezy.world">sweezy.world</a> | Manager <a href="https://t.me/vladyslavarcher">@vladyslavarcher</a> <a href="https://t.me/yuliiaarcher">@yuliiaarcher</a> 🏹`;
 
 export function escapeHtml(value: string): string {

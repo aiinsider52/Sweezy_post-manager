@@ -72,6 +72,7 @@ ${comment}
 4) рядок із закликом до дії, починається з 👉
 5) посилання на джерело: 🔗 <a href="${post.sourceUrl}">…</a> — URL джерела не змінюй
 6) фірмовий підпис каналу в кінці без змін:
+🇨🇭 Sweezy — Life in Switzerland. Simplified.
 <a href="https://t.me/sweezyxswiss">Sweezy</a> | <a href="https://sweezy.world">sweezy.world</a> | Manager <a href="https://t.me/vladyslavarcher">@vladyslavarcher</a> <a href="https://t.me/yuliiaarcher">@yuliiaarcher</a> 🏹
 
 Не додавай інші HTML-теги. Не екрануй існуючі теги як текст. Текст має вміщатися у Telegram caption (до 1024 символів разом із розміткою).
