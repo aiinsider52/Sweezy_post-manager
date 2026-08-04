@@ -2,6 +2,7 @@ import type { GeneratedPost } from "../types.js";
 
 const CATEGORY_BADGE: Record<GeneratedPost["category"], string> = {
   useful_news: "📌",
+  business: "💼",
   light: "✨",
   product: "🚀",
   skip: "📰"
@@ -29,6 +30,7 @@ export interface PostContent {
   title: string;
   body: string;
   takeaway?: string;
+  cta?: string;
   sourceUrl: string;
   sourceLabel?: string;
   category: GeneratedPost["category"];
@@ -37,12 +39,17 @@ export interface PostContent {
 function formatTakeawayBlock(takeaway: string): string {
   const clean = takeaway
     .replace(/^💡\s*/u, "")
-    .replace(/\s*❞\s*$/u, "")
+    .replace(/\s*[❞"]\s*$/u, "")
     .trim();
-  return `<blockquote>💡 ${escapeHtml(clean)} ❞</blockquote>`;
+  return `<blockquote>💡 ${escapeHtml(clean)}</blockquote>`;
 }
 
-function build(content: PostContent, includeTakeaway: boolean): string {
+function formatCtaLine(cta: string): string {
+  const clean = cta.replace(/^👉\s*/u, "").trim();
+  return `👉 <b>${escapeHtml(clean)}</b>`;
+}
+
+function build(content: PostContent, includeTakeaway: boolean, includeCta: boolean): string {
   const badge = CATEGORY_BADGE[content.category] ?? "📰";
   const title = escapeHtml(content.title.trim());
   const paragraphs = content.body
@@ -59,6 +66,11 @@ function build(content: PostContent, includeTakeaway: boolean): string {
     blocks.push("", formatTakeawayBlock(takeaway));
   }
 
+  const cta = content.cta?.trim();
+  if (includeCta && cta) {
+    blocks.push("", formatCtaLine(cta));
+  }
+
   const label = escapeHtml((content.sourceLabel ?? "Джерело").trim() || "Джерело");
   blocks.push("", `🔗 <a href="${escapeHref(content.sourceUrl)}">${label}</a>`);
   blocks.push("", CHANNEL_SIGNATURE);
@@ -67,26 +79,37 @@ function build(content: PostContent, includeTakeaway: boolean): string {
 
 /** Builds a Telegram HTML caption with a consistent editorial look. */
 export function formatPostHtml(content: PostContent): string {
-  let html = build(content, true);
+  let html = build(content, true, true);
   if (html.length <= MAX_POST_TEXT_LENGTH) return html;
 
-  html = build(content, false);
+  html = build(content, true, false);
   if (html.length <= MAX_POST_TEXT_LENGTH) return html;
 
-  // Truncate body paragraphs until it fits.
+  html = build(content, false, true);
+  if (html.length <= MAX_POST_TEXT_LENGTH) return html;
+
+  html = build(content, false, false);
+  if (html.length <= MAX_POST_TEXT_LENGTH) return html;
+
   const paragraphs = content.body.split(/\n+/).map((part) => part.trim()).filter(Boolean);
   while (paragraphs.length > 1) {
     paragraphs.pop();
-    html = build({ ...content, body: paragraphs.join("\n\n"), takeaway: "" }, false);
+    const slim: PostContent = {
+      ...content,
+      body: paragraphs.join("\n\n"),
+      takeaway: "",
+      cta: content.cta ?? ""
+    };
+    html = build(slim, false, Boolean((slim.cta ?? "").trim()));
     if (html.length <= MAX_POST_TEXT_LENGTH) return html;
   }
 
   const title = content.title.trim().slice(0, 60);
-  let body = (paragraphs[0] ?? "").slice(0, 360);
-  html = build({ ...content, title, body, takeaway: "" }, false);
+  let body = (paragraphs[0] ?? "").slice(0, 320);
+  html = build({ ...content, title, body, takeaway: "", cta: "" }, false, false);
   while (html.length > MAX_POST_TEXT_LENGTH && body.length > 80) {
     body = body.slice(0, Math.max(80, body.length - 40));
-    html = build({ ...content, title, body, takeaway: "" }, false);
+    html = build({ ...content, title, body, takeaway: "", cta: "" }, false, false);
   }
   return html;
 }

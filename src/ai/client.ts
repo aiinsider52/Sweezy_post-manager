@@ -4,7 +4,7 @@ import { config } from "../config.js";
 import type { GeneratedPost, NewsItem, Post } from "../types.js";
 import { formatPostHtml, MAX_POST_TEXT_LENGTH } from "../bot/format-post.js";
 import { logger } from "../logger.js";
-import { buildRevisionPrompt, buildSelectionPrompt } from "./prompts.js";
+import { buildRevisionPrompt, buildSelectionPrompt, enrichImagePrompt } from "./prompts.js";
 
 const selectionSchema = z.object({
   accepted: z.boolean(),
@@ -13,8 +13,9 @@ const selectionSchema = z.object({
   title: z.string().default(""),
   body: z.string().default(""),
   takeaway: z.string().default(""),
+  cta: z.string().default(""),
   imagePrompt: z.string().default(""),
-  category: z.enum(["product", "useful_news", "light", "skip"]).catch("useful_news")
+  category: z.enum(["product", "useful_news", "business", "light", "skip"]).catch("useful_news")
 });
 const revisionSchema = z.object({ text: z.string().min(1).max(MAX_POST_TEXT_LENGTH), imagePrompt: z.string(), regenerateImage: z.boolean() });
 
@@ -24,7 +25,7 @@ export class AiService {
   async selectAndWrite(items: NewsItem[]): Promise<{ generated: GeneratedPost; item: NewsItem | null }> {
     const completion = await this.client.chat.completions.create({
       model: config.OPENAI_TEXT_MODEL,
-      temperature: 0.6,
+      temperature: 0.55,
       response_format: { type: "json_object" },
       messages: [{ role: "user", content: buildSelectionPrompt(items) }]
     });
@@ -39,14 +40,16 @@ export class AiService {
     const parsed = selectionSchema.parse(raw);
     const item = items.find((candidate) => candidate.url === parsed.selectedUrl) ?? null;
     const accepted = parsed.accepted && Boolean(item) && Boolean(parsed.title.trim()) && Boolean(parsed.body.trim());
+    const category = parsed.category === "skip" ? "useful_news" : parsed.category;
     const text = accepted && item
       ? formatPostHtml({
           title: parsed.title.slice(0, 70),
           body: parsed.body.slice(0, 650),
-          takeaway: parsed.takeaway.slice(0, 120),
+          takeaway: parsed.takeaway.slice(0, 130),
+          cta: (parsed.cta || "Читайте деталі в джерелі та збережіть собі на майбутнє").slice(0, 110),
           sourceUrl: item.url,
           sourceLabel: `Джерело · ${item.source}`,
-          category: parsed.category === "skip" ? "useful_news" : parsed.category
+          category
         })
       : "";
     if (text.length > MAX_POST_TEXT_LENGTH) throw new Error(`Generated caption exceeds Telegram limit: ${text.length}`);
@@ -55,7 +58,7 @@ export class AiService {
         accepted,
         reason: parsed.reason,
         text,
-        imagePrompt: parsed.imagePrompt || "Editorial photo of Switzerland, natural light, no text",
+        imagePrompt: parsed.imagePrompt || "Everyday life in modern Switzerland, cinematic framing",
         category: parsed.category
       },
       item
@@ -76,8 +79,8 @@ export class AiService {
     const started = Date.now();
     const result = await this.client.images.generate({
       model: config.OPENAI_IMAGE_MODEL,
-      prompt,
-      size: "1024x1024",
+      prompt: enrichImagePrompt(prompt),
+      size: "1536x1024",
       quality: "high"
     });
     const image = result.data?.[0];

@@ -27,6 +27,21 @@ describe("scoreNewsItem", () => {
     });
     expect(scoreNewsItem(ua, now)).toBeGreaterThan(scoreNewsItem(sports, now));
   });
+
+  it("boosts Swiss startup and business stories", () => {
+    const biz = item({
+      title: "Zürcher Startup erhält Millionen-Finanzierung",
+      url: "https://example.com/biz",
+      description: "Gründer aus dem KMU-Umfeld",
+      publishedAt: "2026-08-04T09:00:00Z"
+    });
+    const bland = item({
+      title: "Lokale Mitteilung ohne Bezug",
+      url: "https://example.com/x",
+      publishedAt: "2026-08-04T09:00:00Z"
+    });
+    expect(scoreNewsItem(biz, now)).toBeGreaterThan(scoreNewsItem(bland, now));
+  });
 });
 
 describe("rankNews", () => {

@@ -15,7 +15,8 @@ const feeds = [
   // Google News with browser UA
   ["GN Ukrainians CH", "https://news.google.com/rss/search?q=Ukrainians%20OR%20Ukraine%20Switzerland%20OR%20Schutzstatus%20when%3A2d&hl=en&gl=CH&ceid=CH%3Aen"],
   ["GN Schweiz Leben", "https://news.google.com/rss/search?q=Schweiz%20(Wohnung%20OR%20Miete%20OR%20Krankenkasse%20OR%20SBB%20OR%20Steuern%20OR%20Arbeit%20OR%20Asyl)%20when%3A2d&hl=de&gl=CH&ceid=CH%3Ade"],
-  ["GN Schweiz Kurios", "https://news.google.com/rss/search?q=Schweiz%20(kurios%20OR%20skurril%20OR%20absurd%20OR%20Rekord)%20when%3A2d&hl=de&gl=CH&ceid=CH%3Ade"],
+  ["GN Schweiz Kurios", "https://news.google.com/rss/search?q=Schweiz%20(kurios%20OR%20skurril%20OR%20absurd%20OR%20Rekord%20OR%20Panne)%20when%3A2d&hl=de&gl=CH&ceid=CH%3Ade"],
+  ["GN Swiss Business", "https://news.google.com/rss/search?q=Schweiz%20(Startup%20OR%20KMU%20OR%20Unternehmen%20OR%20Selbst%C3%A4ndig%20OR%20Gr%C3%BCnder)%20when%3A2d&hl=de&gl=CH&ceid=CH%3Ade"],
   ["GN Swissinfo", "https://news.google.com/rss/search?q=site%3Aswissinfo.ch%20when%3A2d&hl=en&gl=CH&ceid=CH%3Aen"],
   ["GN 20 Minuten", "https://news.google.com/rss/search?q=site%3A20min.ch%20Schweiz%20when%3A2d&hl=de&gl=CH&ceid=CH%3Ade"],
   ["GN Blick", "https://news.google.com/rss/search?q=site%3Ablick.ch%20Schweiz%20when%3A2d&hl=de&gl=CH&ceid=CH%3Ade"]

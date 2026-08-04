@@ -16,7 +16,9 @@ const BOOST = [
   /steuer|finanzen|budget|lohn/i,
   /arbeit|stelle|jobmarkt|arbeitsmarkt/i,
   /schule|kita|kinder/i,
-  /kurios|absurd|skurril|ungewöhnlich|rekord/i,
+  /kurios|absurd|skurril|ungewöhnlich|rekord|panne|missgeschick/i,
+  /startup|start-up|gründer|unternehmen|kmu|selbständig|freelanc|gmbh|firma|geschäft|unternehm/i,
+  /innovation|finanzierung|invest|venture/i,
   /schweiz|swiss|helvet/i,
   /zürich|zurich|genf|geneva|basel|bern|lausanne|luzern/i
 ];

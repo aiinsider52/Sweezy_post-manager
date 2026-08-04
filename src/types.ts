@@ -29,5 +29,5 @@ export interface GeneratedPost {
   reason: string;
   text: string;
   imagePrompt: string;
-  category: "product" | "useful_news" | "light" | "skip";
+  category: "product" | "useful_news" | "business" | "light" | "skip";
 }
