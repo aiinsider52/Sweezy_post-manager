@@ -10,10 +10,21 @@ import { startHealthServer } from "./health.js";
 const store = createStore();
 await store.init();
 const ai = new AiService();
+
+let inflightDraft: Promise<void> | null = null;
 let draftJob: () => Promise<void> = async () => {
   throw new Error("Draft job is not ready yet");
 };
-const bot = createBot(store, ai, () => draftJob());
+
+const runDraftTracked = async (): Promise<void> => {
+  const run = draftJob();
+  inflightDraft = run.finally(() => {
+    if (inflightDraft === run) inflightDraft = null;
+  });
+  await inflightDraft;
+};
+
+const bot = createBot(store, ai, runDraftTracked);
 const healthServer = startHealthServer();
 
 async function verifyChannelPermissions(): Promise<void> {
@@ -32,19 +43,37 @@ async function verifyChannelPermissions(): Promise<void> {
 await bot.init();
 await verifyChannelPermissions();
 draftJob = createDraftJob(store, ai, bot);
-const scheduledTask = startScheduler(draftJob);
+const scheduledTask = startScheduler(runDraftTracked);
 
 if (process.env.RUN_DRAFT_ON_START === "true") {
   logger.info("RUN_DRAFT_ON_START=true — launching one-shot draft job");
-  void draftJob();
+  void runDraftTracked();
 }
 
+let stopping = false;
 const stop = async (signal: string) => {
+  if (stopping) return;
+  stopping = true;
   logger.info({ signal }, "Shutting down");
   scheduledTask.stop();
   bot.stop();
   healthServer.close();
-  await store.close();
+
+  // Keep SQLite open until the in-flight /draft finishes — closing early causes
+  // "The database connection is not open" during deploys.
+  if (inflightDraft) {
+    logger.info("Waiting for in-flight draft before closing database");
+    await Promise.race([
+      inflightDraft.catch(() => undefined as void),
+      new Promise<void>((resolve) => setTimeout(resolve, 25_000))
+    ]);
+  }
+
+  try {
+    await store.close();
+  } catch (error) {
+    logger.warn({ err: error }, "Store close failed");
+  }
 };
 process.once("SIGTERM", () => void stop("SIGTERM"));
 process.once("SIGINT", () => void stop("SIGINT"));

@@ -26,6 +26,7 @@ export function createBot(store: Store, ai: AiService, runDraftJob?: () => Promi
     try {
       await runDraftJob();
     } catch (error) {
+      // Draft job normally reports failures itself; this covers unexpected throws only.
       logger.error({ err: error }, "Manual /draft failed");
       await ctx.reply(`❌ Не вдалося створити чернетку: ${error instanceof Error ? error.message : "невідома помилка"}`);
     }

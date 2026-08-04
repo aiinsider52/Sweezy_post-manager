@@ -57,9 +57,14 @@ export function createDraftJob(store: Store, ai: AiService, bot: Bot): () => Pro
       if (sourceUrl !== item.url) await store.markSeen(hashUrl(item.url));
       logger.info({ postId: id, source: item.source, sourceUrl, ms: Date.now() - started }, "Draft sent for review");
     } catch (error) {
-      logger.error({ err: error, ms: Date.now() - started }, "Draft job failed");
-      await bot.api.sendMessage(config.ADMIN_CHAT_ID, `⚠️ Не вдалося створити чернетку: ${error instanceof Error ? error.message : "невідома помилка"}`).catch(() => undefined);
-      throw error;
+      const message = error instanceof Error ? error.message : "невідома помилка";
+      const shuttingDown = /database connection is not open/i.test(message);
+      logger.error({ err: error, ms: Date.now() - started, shuttingDown }, "Draft job failed");
+      const text = shuttingDown
+        ? "⚠️ Зараз іде оновлення сервісу. Зачекайте ~1 хвилину і знову надішліть /draft."
+        : `⚠️ Не вдалося створити чернетку: ${message}`;
+      await bot.api.sendMessage(config.ADMIN_CHAT_ID, text).catch(() => undefined);
+      // Don't rethrow — caller (/draft) already got a user-facing message here.
     } finally { running = false; }
   };
 }

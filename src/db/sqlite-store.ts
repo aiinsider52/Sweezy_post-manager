@@ -7,6 +7,7 @@ import type { NewPost, Store } from "./store.js";
 
 export class SqliteStore implements Store {
   private db: Database.Database;
+  private closed = false;
 
   constructor(path: string) {
     mkdirSync(dirname(path), { recursive: true });
@@ -15,7 +16,12 @@ export class SqliteStore implements Store {
     this.db.pragma("foreign_keys = ON");
   }
 
+  private assertOpen(): void {
+    if (this.closed) throw new Error("The database connection is not open");
+  }
+
   async init(): Promise<void> {
+    this.assertOpen();
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS posts (
         id TEXT PRIMARY KEY,
@@ -44,9 +50,19 @@ export class SqliteStore implements Store {
     `);
   }
 
-  async close(): Promise<void> { this.db.close(); }
-  async hasSeen(hash: string): Promise<boolean> { return Boolean(this.db.prepare("SELECT 1 FROM seen_news WHERE url_hash = ?").get(hash)); }
-  async markSeen(hash: string): Promise<void> { this.db.prepare("INSERT OR IGNORE INTO seen_news(url_hash) VALUES (?)").run(hash); }
+  async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    this.db.close();
+  }
+  async hasSeen(hash: string): Promise<boolean> {
+    this.assertOpen();
+    return Boolean(this.db.prepare("SELECT 1 FROM seen_news WHERE url_hash = ?").get(hash));
+  }
+  async markSeen(hash: string): Promise<void> {
+    this.assertOpen();
+    this.db.prepare("INSERT OR IGNORE INTO seen_news(url_hash) VALUES (?)").run(hash);
+  }
 
   async createPost(post: NewPost): Promise<Post> {
     this.db.prepare(`INSERT INTO posts(id, source_url, status, text, image_path, image_url, image_prompt, source_title)
