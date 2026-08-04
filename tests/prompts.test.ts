@@ -23,5 +23,6 @@ describe("buildRevisionPrompt", () => {
     expect(prompt).toContain("Swiss train");
     expect(prompt).toContain("regenerateImage");
     expect(prompt).toContain("<blockquote>");
+    expect(prompt).toContain("❞");
   });
 });

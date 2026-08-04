@@ -15,11 +15,23 @@ describe("formatPostHtml", () => {
     expect(html).toContain("📌 <b>Нові правила &lt;B&gt;permit&gt;</b>");
     expect(html).toContain("Перший абзац.");
     expect(html).toContain("Другий абзац з деталями.");
-    expect(html).toContain("<blockquote>💡 Перевірте умови на SEM</blockquote>");
+    expect(html).toContain("<blockquote>💡 Перевірте умови на SEM ❞</blockquote>");
     expect(html).toContain('<a href="https://example.com/a?x=1&amp;y=2">Джерело · SRF</a>');
     expect(html).toContain(CHANNEL_SIGNATURE);
     expect(html.endsWith("🏹")).toBe(true);
     expect(html).not.toContain("Джерело:");
+  });
+
+  it("normalizes takeaway that already includes quote emojis", () => {
+    const html = formatPostHtml({
+      title: "Тест",
+      body: "Текст.",
+      takeaway: "💡 Будьте уважні ❞",
+      sourceUrl: "https://example.com/x",
+      category: "useful_news"
+    });
+    expect(html).toContain("<blockquote>💡 Будьте уважні ❞</blockquote>");
+    expect(html.match(/💡/g)?.length).toBe(1);
   });
 
   it("uses light badge and skips empty takeaway", () => {

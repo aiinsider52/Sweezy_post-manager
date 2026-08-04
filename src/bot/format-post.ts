@@ -34,6 +34,14 @@ export interface PostContent {
   category: GeneratedPost["category"];
 }
 
+function formatTakeawayBlock(takeaway: string): string {
+  const clean = takeaway
+    .replace(/^💡\s*/u, "")
+    .replace(/\s*❞\s*$/u, "")
+    .trim();
+  return `<blockquote>💡 ${escapeHtml(clean)} ❞</blockquote>`;
+}
+
 function build(content: PostContent, includeTakeaway: boolean): string {
   const badge = CATEGORY_BADGE[content.category] ?? "📰";
   const title = escapeHtml(content.title.trim());
@@ -48,7 +56,7 @@ function build(content: PostContent, includeTakeaway: boolean): string {
 
   const takeaway = content.takeaway?.trim();
   if (includeTakeaway && takeaway) {
-    blocks.push("", `<blockquote>💡 ${escapeHtml(takeaway)}</blockquote>`);
+    blocks.push("", formatTakeawayBlock(takeaway));
   }
 
   const label = escapeHtml((content.sourceLabel ?? "Джерело").trim() || "Джерело");
