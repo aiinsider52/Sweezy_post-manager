@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import type { Store } from "../db/store.js";
 import { hashUrl } from "../news/hash.js";
 import { fetchNews } from "../news/fetch-news.js";
+import { resolveArticleUrl } from "../news/resolve-url.js";
 import { AiService } from "../ai/client.js";
 import { downloadImage, saveImage } from "../ai/image-store.js";
 import { sendDraft } from "../bot/send-post.js";
@@ -27,6 +28,7 @@ export function createDraftJob(store: Store, ai: AiService, bot: Bot): () => Pro
       const { generated, item } = await ai.selectAndWrite(unseen);
       if (!generated.accepted || !item) { logger.info({ reason: generated.reason }, "LLM rejected news batch"); return; }
 
+      const sourceUrl = await resolveArticleUrl(item.url);
       const id = randomUUID();
       let imagePath: string;
       if (config.ALLOW_SOURCE_IMAGES && item.imageUrl) {
@@ -35,7 +37,14 @@ export function createDraftJob(store: Store, ai: AiService, bot: Bot): () => Pro
       } else {
         imagePath = await saveImage(config.SQLITE_PATH, id, await ai.generateImage(generated.imagePrompt));
       }
-      const post = await store.createPost({ id, sourceUrl: item.url, sourceTitle: item.title, text: generated.text, imagePath, imageUrl: null, imagePrompt: generated.imagePrompt });
+      // Rebuild caption with resolved publisher URL when Google News was selected.
+      let text = generated.text;
+      if (sourceUrl !== item.url && text.includes(item.url)) {
+        text = text.replaceAll(item.url, sourceUrl);
+      } else if (sourceUrl !== item.url) {
+        text = text.replace(/href="[^"]*news\.google\.com[^"]*"/g, `href="${sourceUrl.replaceAll('"', "&quot;")}"`);
+      }
+      const post = await store.createPost({ id, sourceUrl, sourceTitle: item.title, text, imagePath, imageUrl: null, imagePrompt: generated.imagePrompt });
       let messageId: number;
       try {
         messageId = await sendDraft(bot.api, config.ADMIN_CHAT_ID, post);
@@ -44,8 +53,9 @@ export function createDraftJob(store: Store, ai: AiService, bot: Bot): () => Pro
         throw error;
       }
       await store.setReviewMessage(id, messageId);
-      await store.markSeen(hashUrl(item.url));
-      logger.info({ postId: id, source: item.source, ms: Date.now() - started }, "Draft sent for review");
+      await store.markSeen(hashUrl(sourceUrl));
+      if (sourceUrl !== item.url) await store.markSeen(hashUrl(item.url));
+      logger.info({ postId: id, source: item.source, sourceUrl, ms: Date.now() - started }, "Draft sent for review");
     } catch (error) {
       logger.error({ err: error, ms: Date.now() - started }, "Draft job failed");
       await bot.api.sendMessage(config.ADMIN_CHAT_ID, `⚠️ Не вдалося створити чернетку: ${error instanceof Error ? error.message : "невідома помилка"}`).catch(() => undefined);

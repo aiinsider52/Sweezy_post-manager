@@ -78,7 +78,7 @@ export class AiService {
       model: config.OPENAI_IMAGE_MODEL,
       prompt,
       size: "1024x1024",
-      quality: "low"
+      quality: "high"
     });
     const image = result.data?.[0];
     if (image?.b64_json) {
