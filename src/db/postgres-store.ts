@@ -41,4 +41,8 @@ export class PostgresStore implements Store {
   async markPublished(id: string): Promise<void> { await this.pool.query("UPDATE posts SET status='published',published_at=NOW() WHERE id=$1 AND status='approved'",[id]); }
   async setAwaitingRevision(postId: string | null): Promise<void> { await this.pool.query("UPDATE editorial_state SET awaiting_revision_post_id=$1 WHERE singleton=1",[postId]); }
   async getAwaitingRevision(): Promise<string | null> { const { rows } = await this.pool.query("SELECT awaiting_revision_post_id AS id FROM editorial_state WHERE singleton=1"); return rows[0]?.id ?? null; }
+  async listRecentSourceTitles(limit = 8): Promise<string[]> {
+    const { rows } = await this.pool.query("SELECT source_title AS title FROM posts ORDER BY created_at DESC LIMIT $1", [limit]);
+    return rows.map((row: { title: string }) => row.title).filter(Boolean);
+  }
 }

@@ -103,4 +103,12 @@ export class SqliteStore implements Store {
   }
   async setAwaitingRevision(postId: string | null): Promise<void> { this.db.prepare("UPDATE editorial_state SET awaiting_revision_post_id = ? WHERE singleton = 1").run(postId); }
   async getAwaitingRevision(): Promise<string | null> { const row = this.db.prepare("SELECT awaiting_revision_post_id AS id FROM editorial_state WHERE singleton = 1").get() as { id: string | null }; return row.id; }
+
+  async listRecentSourceTitles(limit = 8): Promise<string[]> {
+    this.assertOpen();
+    const rows = this.db.prepare(
+      "SELECT source_title AS title FROM posts ORDER BY datetime(created_at) DESC, rowid DESC LIMIT ?"
+    ).all(limit) as Array<{ title: string }>;
+    return rows.map((row) => row.title).filter(Boolean);
+  }
 }

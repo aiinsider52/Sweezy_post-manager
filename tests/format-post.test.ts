@@ -38,7 +38,7 @@ describe("formatPostHtml", () => {
     const html = formatPostHtml({
       title: "Тест",
       body: "Текст.",
-      takeaway: "💡 Будьте уважні ❞",
+      takeaway: "💡 Будьте уважні ❞”",
       cta: "👉 Зробіть це",
       sourceUrl: "https://example.com/x",
       category: "useful_news"
@@ -48,7 +48,7 @@ describe("formatPostHtml", () => {
     expect(html.match(/💡/g)?.length).toBe(1);
   });
 
-  it("shrinks oversized captions and keeps signature", () => {
+  it("shrinks oversized captions but keeps takeaway quote", () => {
     const html = formatPostHtml({
       title: "Довгий заголовок про важливі правила для українців у Швейцарії",
       body: `${"Абзац один з деталями. ".repeat(40)}\n\n${"Абзац два з ще більшою кількістю тексту. ".repeat(40)}`,
@@ -60,6 +60,7 @@ describe("formatPostHtml", () => {
     });
     expect(html.length).toBeLessThanOrEqual(960);
     expect(html).toContain(CHANNEL_SIGNATURE);
+    expect(html).toContain("<blockquote>💡");
   });
 });
 

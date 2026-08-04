@@ -22,12 +22,15 @@ const revisionSchema = z.object({ text: z.string().min(1).max(MAX_POST_TEXT_LENG
 export class AiService {
   private client = new OpenAI({ apiKey: config.OPENAI_API_KEY });
 
-  async selectAndWrite(items: NewsItem[]): Promise<{ generated: GeneratedPost; item: NewsItem | null }> {
+  async selectAndWrite(
+    items: NewsItem[],
+    recentTitles: string[] = []
+  ): Promise<{ generated: GeneratedPost; item: NewsItem | null }> {
     const completion = await this.client.chat.completions.create({
       model: config.OPENAI_TEXT_MODEL,
-      temperature: 0.55,
+      temperature: 0.75,
       response_format: { type: "json_object" },
-      messages: [{ role: "user", content: buildSelectionPrompt(items) }]
+      messages: [{ role: "user", content: buildSelectionPrompt(items, recentTitles) }]
     });
     const raw = JSON.parse(completion.choices[0]?.message.content ?? "{}") as Record<string, unknown>;
     // Back-compat if model still returns a single "text" field.
@@ -41,11 +44,12 @@ export class AiService {
     const item = items.find((candidate) => candidate.url === parsed.selectedUrl) ?? null;
     const accepted = parsed.accepted && Boolean(item) && Boolean(parsed.title.trim()) && Boolean(parsed.body.trim());
     const category = parsed.category === "skip" ? "useful_news" : parsed.category;
+    const takeaway = (parsed.takeaway || "Збережіть собі й перевірте деталі в офіційному джерелі").slice(0, 130);
     const text = accepted && item
       ? formatPostHtml({
           title: parsed.title.slice(0, 70),
           body: parsed.body.slice(0, 650),
-          takeaway: parsed.takeaway.slice(0, 130),
+          takeaway,
           cta: (parsed.cta || "Читайте деталі в джерелі та збережіть собі на майбутнє").slice(0, 110),
           sourceUrl: item.url,
           sourceLabel: `Джерело · ${item.source}`,

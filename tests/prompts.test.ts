@@ -10,6 +10,16 @@ describe("buildSelectionPrompt", () => {
     expect(prompt).toContain("КОНКРЕТИКИ");
     expect(prompt).toContain("business");
     expect(prompt).toContain("статус S");
+    expect(prompt).toContain("blockquote");
+  });
+
+  it("includes recent titles to avoid topic repeats", () => {
+    const prompt = buildSelectionPrompt(
+      [{ title: "T", url: "https://example.com", description: "D", source: "SRF", publishedAt: "2026-08-04T08:00:00Z" }],
+      ["ÖV правила квитків", "Schutzstatus S оновлення"]
+    );
+    expect(prompt).toContain("ÖV правила квитків");
+    expect(prompt).toContain("НЕ ПОВТОРЮЙ");
   });
 });
 

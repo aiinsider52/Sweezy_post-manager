@@ -23,4 +23,6 @@ export interface Store {
   markPublished(id: string): Promise<void>;
   setAwaitingRevision(postId: string | null): Promise<void>;
   getAwaitingRevision(): Promise<string | null>;
+  /** Recent post titles for topic diversity (newest first). */
+  listRecentSourceTitles(limit?: number): Promise<string[]>;
 }

@@ -40,7 +40,9 @@ export interface PostContent {
 function formatTakeawayBlock(takeaway: string): string {
   const clean = takeaway
     .replace(/^💡\s*/u, "")
-    .replace(/\s*[❞"]\s*$/u, "")
+    .replace(/^[❝„"”]\s*/u, "")
+    .replace(/\s*[❞"”„❝]+\s*$/u, "")
+    .replace(/[❝❞„]/gu, "")
     .trim();
   return `<blockquote>💡 ${escapeHtml(clean)}</blockquote>`;
 }
@@ -80,16 +82,13 @@ function build(content: PostContent, includeTakeaway: boolean, includeCta: boole
 
 /** Builds a Telegram HTML caption with a consistent editorial look. */
 export function formatPostHtml(content: PostContent): string {
+  const takeaway = content.takeaway?.trim() ?? "";
+
   let html = build(content, true, true);
   if (html.length <= MAX_POST_TEXT_LENGTH) return html;
 
-  html = build(content, true, false);
-  if (html.length <= MAX_POST_TEXT_LENGTH) return html;
-
-  html = build(content, false, true);
-  if (html.length <= MAX_POST_TEXT_LENGTH) return html;
-
-  html = build(content, false, false);
+  // Prefer dropping CTA over takeaway — the 💡 quote block is part of the brand look.
+  html = build(content, Boolean(takeaway), false);
   if (html.length <= MAX_POST_TEXT_LENGTH) return html;
 
   const paragraphs = content.body.split(/\n+/).map((part) => part.trim()).filter(Boolean);
@@ -98,19 +97,27 @@ export function formatPostHtml(content: PostContent): string {
     const slim: PostContent = {
       ...content,
       body: paragraphs.join("\n\n"),
-      takeaway: "",
-      cta: content.cta ?? ""
+      cta: ""
     };
-    html = build(slim, false, Boolean((slim.cta ?? "").trim()));
+    html = build(slim, Boolean(takeaway), false);
     if (html.length <= MAX_POST_TEXT_LENGTH) return html;
   }
 
-  const title = content.title.trim().slice(0, 60);
   let body = (paragraphs[0] ?? "").slice(0, 320);
-  html = build({ ...content, title, body, takeaway: "", cta: "" }, false, false);
-  while (html.length > MAX_POST_TEXT_LENGTH && body.length > 80) {
-    body = body.slice(0, Math.max(80, body.length - 40));
-    html = build({ ...content, title, body, takeaway: "", cta: "" }, false, false);
+  let title = content.title.trim().slice(0, 60);
+  let tip = takeaway.slice(0, 110);
+  html = build({ ...content, title, body, takeaway: tip, cta: "" }, Boolean(tip), false);
+  while (html.length > MAX_POST_TEXT_LENGTH) {
+    if (body.length > 80) {
+      body = body.slice(0, Math.max(80, body.length - 40));
+    } else if (tip.length > 40) {
+      tip = tip.slice(0, Math.max(40, tip.length - 20));
+    } else if (title.length > 30) {
+      title = title.slice(0, Math.max(30, title.length - 10));
+    } else {
+      break;
+    }
+    html = build({ ...content, title, body, takeaway: tip, cta: "" }, Boolean(tip), false);
   }
   return html;
 }

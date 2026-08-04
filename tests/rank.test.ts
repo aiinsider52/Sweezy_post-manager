@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rankNews, scoreNewsItem } from "../src/news/rank.js";
+import { diversifyCandidates, rankNews, scoreNewsItem, topicBucket } from "../src/news/rank.js";
 import type { NewsItem } from "../src/types.js";
 
 function item(partial: Partial<NewsItem> & Pick<NewsItem, "title" | "url">): NewsItem {
@@ -72,5 +72,46 @@ describe("rankNews", () => {
       "https://example.com/rent",
       "https://example.com/light"
     ]);
+  });
+});
+
+describe("diversifyCandidates", () => {
+  const now = Date.parse("2026-08-04T10:00:00Z");
+
+  it("mixes topic buckets and demotes recent transport themes", () => {
+    const items = [
+      item({
+        title: "SBB ändert Fahrplan erneut",
+        url: "https://example.com/train1",
+        description: "ÖV Ticket Regeln",
+        publishedAt: "2026-08-04T09:00:00Z"
+      }),
+      item({
+        title: "Noch mehr ÖV Vorschriften",
+        url: "https://example.com/train2",
+        description: "Verkehr und Pendler",
+        publishedAt: "2026-08-04T08:30:00Z"
+      }),
+      item({
+        title: "Zürcher Startup erhält Finanzierung",
+        url: "https://example.com/biz",
+        description: "Gründer GmbH KMU",
+        publishedAt: "2026-08-04T08:00:00Z"
+      }),
+      item({
+        title: "Kurios: Rekordpanne in Bern",
+        url: "https://example.com/funny",
+        description: "Absurd und ungewöhnlich",
+        publishedAt: "2026-08-04T07:00:00Z"
+      })
+    ];
+
+    const mixed = diversifyCandidates(items, ["SBB Fahrplan ÖV Regeln"], 4, now);
+    expect(mixed[0]?.url).not.toBe("https://example.com/train1");
+    expect(mixed.map((entry) => entry.url)).toEqual(expect.arrayContaining([
+      "https://example.com/biz",
+      "https://example.com/funny"
+    ]));
+    expect(topicBucket("SBB Fahrplan")).toBe("transport");
   });
 });

@@ -25,4 +25,8 @@ describe("approve/revise/reject state flow", () => {
     expect(await store.transition("p1", ["pending_review"], "rejected")).toBe(true);
     expect(await store.transition("p1", ["pending_review"], "approved")).toBe(false);
   });
+  it("lists recent source titles newest first", async () => {
+    await store.createPost({ id: "p2", sourceUrl: "https://example.com/2", sourceTitle: "Newer", text: "Draft2", imagePath: null, imageUrl: null, imagePrompt: "image" });
+    expect(await store.listRecentSourceTitles(5)).toEqual(["Newer", "Title"]);
+  });
 });

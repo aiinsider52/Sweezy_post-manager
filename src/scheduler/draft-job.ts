@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import type { Store } from "../db/store.js";
 import { hashUrl } from "../news/hash.js";
 import { fetchNews } from "../news/fetch-news.js";
+import { diversifyCandidates } from "../news/rank.js";
 import { resolveArticleUrl } from "../news/resolve-url.js";
 import { AiService } from "../ai/client.js";
 import { downloadImage, saveImage } from "../ai/image-store.js";
@@ -17,15 +18,21 @@ export function createDraftJob(store: Store, ai: AiService, bot: Bot): () => Pro
     running = true;
     const started = Date.now();
     try {
+      const recentTitles = await store.listRecentSourceTitles(8);
       const all = await fetchNews(config.NEWS_API_KEY);
       const unseen = [];
       for (const item of all) {
         if (!(await store.hasSeen(hashUrl(item.url)))) unseen.push(item);
-        if (unseen.length >= 35) break;
+        if (unseen.length >= 60) break;
       }
       if (!unseen.length) { logger.info("No unseen news found"); return; }
-      logger.info({ candidates: unseen.length, top: unseen.slice(0, 5).map((i) => ({ source: i.source, title: i.title, publishedAt: i.publishedAt })) }, "Draft candidates");
-      const { generated, item } = await ai.selectAndWrite(unseen);
+      const candidates = diversifyCandidates(unseen, recentTitles, 28);
+      logger.info({
+        candidates: candidates.length,
+        recentTitles,
+        top: candidates.slice(0, 8).map((i) => ({ source: i.source, title: i.title, publishedAt: i.publishedAt }))
+      }, "Draft candidates");
+      const { generated, item } = await ai.selectAndWrite(candidates, recentTitles);
       if (!generated.accepted || !item) { logger.info({ reason: generated.reason }, "LLM rejected news batch"); return; }
 
       const sourceUrl = await resolveArticleUrl(item.url);
