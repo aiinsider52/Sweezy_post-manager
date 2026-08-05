@@ -9,7 +9,7 @@ const CATEGORY_BADGE: Record<GeneratedPost["category"], string> = {
 };
 
 /** Leave room for the draft badge prefix in admin captions. */
-export const MAX_POST_TEXT_LENGTH = 960;
+export const MAX_POST_TEXT_LENGTH = 980;
 
 export const CHANNEL_SIGNATURE =
   `🇨🇭 Sweezy — Life in Switzerland. Simplified.\n` +
@@ -25,6 +25,25 @@ export function escapeHtml(value: string): string {
 
 function escapeHref(url: string): string {
   return escapeHtml(url).replaceAll("'", "&#39;");
+}
+
+/**
+ * Converts lightweight markers to Telegram HTML.
+ * **bold** → <b>, __underline__ → <u>, *italic* → <i>
+ */
+export function richTextToHtml(input: string): string {
+  const placeholders: string[] = [];
+  const protect = (html: string) => {
+    placeholders.push(html);
+    return `\u0000${placeholders.length - 1}\u0000`;
+  };
+
+  let text = input;
+  text = text.replace(/\*\*([^*]+)\*\*/g, (_, inner: string) => protect(`<b>${escapeHtml(inner)}</b>`));
+  text = text.replace(/__([^_]+)__/g, (_, inner: string) => protect(`<u>${escapeHtml(inner)}</u>`));
+  text = text.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, (_, inner: string) => protect(`<i>${escapeHtml(inner)}</i>`));
+  text = escapeHtml(text);
+  return text.replace(/\u0000(\d+)\u0000/g, (_, index: string) => placeholders[Number(index)] ?? "");
 }
 
 export interface PostContent {
@@ -43,12 +62,14 @@ function formatTakeawayBlock(takeaway: string): string {
     .replace(/^[❝„"”]\s*/u, "")
     .replace(/\s*[❞"”„❝]+\s*$/u, "")
     .replace(/[❝❞„]/gu, "")
+    .replace(/\*\*/g, "")
+    .replace(/__/g, "")
     .trim();
   return `<blockquote>💡 ${escapeHtml(clean)}</blockquote>`;
 }
 
 function formatCtaLine(cta: string): string {
-  const clean = cta.replace(/^👉\s*/u, "").trim();
+  const clean = cta.replace(/^👉\s*/u, "").replace(/\*\*/g, "").replace(/__/g, "").trim();
   return `👉 <b>${escapeHtml(clean)}</b>`;
 }
 
@@ -59,7 +80,7 @@ function build(content: PostContent, includeTakeaway: boolean, includeCta: boole
     .split(/\n+/)
     .map((part) => part.trim())
     .filter(Boolean)
-    .map((part) => escapeHtml(part));
+    .map((part) => richTextToHtml(part));
 
   const blocks: string[] = [`${badge} <b>${title}</b>`];
   if (paragraphs.length) blocks.push("", paragraphs.join("\n\n"));
@@ -87,7 +108,6 @@ export function formatPostHtml(content: PostContent): string {
   let html = build(content, true, true);
   if (html.length <= MAX_POST_TEXT_LENGTH) return html;
 
-  // Prefer dropping CTA over takeaway — the 💡 quote block is part of the brand look.
   html = build(content, Boolean(takeaway), false);
   if (html.length <= MAX_POST_TEXT_LENGTH) return html;
 
@@ -103,13 +123,13 @@ export function formatPostHtml(content: PostContent): string {
     if (html.length <= MAX_POST_TEXT_LENGTH) return html;
   }
 
-  let body = (paragraphs[0] ?? "").slice(0, 320);
-  let title = content.title.trim().slice(0, 60);
-  let tip = takeaway.slice(0, 110);
+  let body = (paragraphs[0] ?? "").slice(0, 400);
+  let title = content.title.trim().slice(0, 70);
+  let tip = takeaway.slice(0, 120);
   html = build({ ...content, title, body, takeaway: tip, cta: "" }, Boolean(tip), false);
   while (html.length > MAX_POST_TEXT_LENGTH) {
-    if (body.length > 80) {
-      body = body.slice(0, Math.max(80, body.length - 40));
+    if (body.length > 100) {
+      body = body.slice(0, Math.max(100, body.length - 40));
     } else if (tip.length > 40) {
       tip = tip.slice(0, Math.max(40, tip.length - 20));
     } else if (title.length > 30) {

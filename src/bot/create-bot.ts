@@ -3,9 +3,36 @@ import { autoRetry } from "@grammyjs/auto-retry";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 import type { Store } from "../db/store.js";
+import { hashUrl } from "../news/hash.js";
 import { AiService } from "../ai/client.js";
 import { saveImage } from "../ai/image-store.js";
 import { publishPost, sendDraft } from "./send-post.js";
+import { REJECT_REASONS, type RejectReason } from "./keyboards.js";
+
+function formatStats(stats: Awaited<ReturnType<Store["getStats"]>>): string {
+  const reasons = Object.entries(stats.rejectReasons)
+    .map(([reason, count]) => `${reason}: ${count}`)
+    .join(", ") || "—";
+  const sources = stats.topSources
+    .map((entry) => `• ${entry.source}: ${entry.count}`)
+    .join("\n") || "• —";
+  return [
+    `📊 <b>Статистика за ${stats.days} дн.</b>`,
+    "",
+    `Чернетки: <b>${stats.drafts}</b>`,
+    `Опубліковано: <b>${stats.published}</b>`,
+    `Відхилено: <b>${stats.rejected}</b> (${reasons})`,
+    `Пропуски LLM/новин: <b>${stats.llmSkips}</b>`,
+    "",
+    `<b>Топ джерел</b>`,
+    sources,
+    "",
+    `<b>OpenAI</b> (орієнтовно)`,
+    `Вартість: <b>$${stats.openaiCostUsd.toFixed(3)}</b>`,
+    `Токени: <b>${stats.openaiTokens}</b>`,
+    `Картинки: <b>${stats.openaiImages}</b>`
+  ].join("\n");
+}
 
 export function createBot(store: Store, ai: AiService, runDraftJob?: () => Promise<void>): Bot {
   const bot = new Bot(config.BOT_TOKEN);
@@ -13,7 +40,15 @@ export function createBot(store: Store, ai: AiService, runDraftJob?: () => Promi
 
   bot.command("start", async (ctx) => {
     const own = ctx.chat.id === config.ADMIN_CHAT_ID;
-    await ctx.reply(own ? "Sweezy bot працює. Чернетки надходитимуть сюди. Команда /draft — тестовий прогін." : `Ваш Telegram ID: ${ctx.chat.id}`);
+    await ctx.reply(own
+      ? "Sweezy bot працює. Команди: /draft · /stats · /cancel"
+      : `Ваш Telegram ID: ${ctx.chat.id}`);
+  });
+
+  bot.command("stats", async (ctx) => {
+    if (ctx.from?.id !== config.ADMIN_CHAT_ID) return;
+    const stats = await store.getStats(7);
+    await ctx.reply(formatStats(stats), { parse_mode: "HTML" });
   });
 
   bot.command("draft", async (ctx) => {
@@ -22,11 +57,10 @@ export function createBot(store: Store, ai: AiService, runDraftJob?: () => Promi
       await ctx.reply("Job ще не готовий. Спробуйте за хвилину.");
       return;
     }
-    await ctx.reply("⏳ Створюю чернетку (зазвичай 30–90 сек: новини → текст → картинка)…");
+    await ctx.reply("⏳ Створюю чернетку (новини → стаття → текст → картинка, ~30–120 сек)…");
     try {
       await runDraftJob();
     } catch (error) {
-      // Draft job normally reports failures itself; this covers unexpected throws only.
       logger.error({ err: error }, "Manual /draft failed");
       await ctx.reply(`❌ Не вдалося створити чернетку: ${error instanceof Error ? error.message : "невідома помилка"}`);
     }
@@ -34,16 +68,29 @@ export function createBot(store: Store, ai: AiService, runDraftJob?: () => Promi
 
   bot.on("callback_query:data", async (ctx) => {
     if (ctx.from.id !== config.ADMIN_CHAT_ID) { await ctx.answerCallbackQuery({ text: "Недостатньо прав", show_alert: true }); return; }
-    const [action, id] = ctx.callbackQuery.data.split(":", 2);
+    const parts = ctx.callbackQuery.data.split(":");
+    const action = parts[0];
+    const id = parts[1];
+    const rejectReason = (parts[2] as RejectReason | undefined) ?? "other";
     if (!id || !["publish", "revise", "reject"].includes(action ?? "")) { await ctx.answerCallbackQuery("Невідома дія"); return; }
     const post = await store.getPost(id);
     if (!post) { await ctx.answerCallbackQuery({ text: "Чернетку не знайдено", show_alert: true }); return; }
 
     if (action === "reject") {
+      const reason = rejectReason in REJECT_REASONS ? rejectReason : "other";
       const changed = await store.transition(id, ["pending_review", "draft"], "rejected");
       await store.setAwaitingRevision(null);
-      await ctx.answerCallbackQuery(changed ? "Відхилено" : "Вже оброблено");
-      if (changed) await ctx.editMessageReplyMarkup();
+      if (changed) {
+        await store.logEvent({
+          eventType: "rejected",
+          postId: id,
+          source: post.sourceTitle,
+          reason,
+          meta: JSON.stringify({ sourceUrl: post.sourceUrl })
+        });
+        await ctx.editMessageReplyMarkup();
+      }
+      await ctx.answerCallbackQuery(changed ? `Відхилено (${reason})` : "Вже оброблено");
       return;
     }
     if (action === "revise") {
@@ -59,7 +106,14 @@ export function createBot(store: Store, ai: AiService, runDraftJob?: () => Promi
     try {
       const channelMessageId = await publishPost(bot.api, config.CHANNEL_ID, post);
       await store.markPublished(id);
+      await store.markSeen(hashUrl(post.sourceUrl));
       await store.setAwaitingRevision(null);
+      await store.logEvent({
+        eventType: "published",
+        postId: id,
+        source: post.sourceTitle,
+        meta: JSON.stringify({ channelMessageId, sourceUrl: post.sourceUrl })
+      });
       await ctx.answerCallbackQuery("Опубліковано");
       await ctx.editMessageReplyMarkup();
       await ctx.reply(`✅ Опубліковано. Message ID: ${channelMessageId}`);
@@ -85,8 +139,31 @@ export function createBot(store: Store, ai: AiService, runDraftJob?: () => Promi
     await ctx.reply("⏳ Переробляю чернетку…");
     try {
       const revision = await ai.revise(post, ctx.message.text);
+      await store.logEvent({
+        eventType: "openai_usage",
+        postId: id,
+        model: revision.usage.model,
+        promptTokens: revision.usage.promptTokens,
+        completionTokens: revision.usage.completionTokens,
+        totalTokens: revision.usage.totalTokens,
+        estimatedCostUsd: revision.usage.estimatedCostUsd,
+        meta: JSON.stringify({ kind: revision.usage.kind, action: "revise" })
+      });
       let imagePath = post.imagePath;
-      if (revision.regenerateImage) imagePath = await saveImage(config.SQLITE_PATH, post.id, await ai.generateImage(revision.imagePrompt));
+      if (revision.regenerateImage) {
+        const image = await ai.generateImage(revision.imagePrompt);
+        await store.logEvent({
+          eventType: "openai_usage",
+          postId: id,
+          model: image.usage.model,
+          promptTokens: image.usage.promptTokens,
+          completionTokens: image.usage.completionTokens,
+          totalTokens: image.usage.totalTokens,
+          estimatedCostUsd: image.usage.estimatedCostUsd,
+          meta: JSON.stringify({ kind: image.usage.kind, action: "revise_image" })
+        });
+        imagePath = await saveImage(config.SQLITE_PATH, post.id, image.buffer);
+      }
       const updated = await store.updatePost(id, { text: revision.text, imagePath, imageUrl: revision.regenerateImage ? null : post.imageUrl, imagePrompt: revision.imagePrompt });
       await store.setAwaitingRevision(null);
       const messageId = await sendDraft(bot.api, config.ADMIN_CHAT_ID, updated);

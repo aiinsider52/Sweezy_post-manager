@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Post, PostStatus } from "../types.js";
 import { rowToPost } from "./mapping.js";
-import type { NewPost, Store } from "./store.js";
+import type { AnalyticsEvent, NewPost, StatsSummary, Store } from "./store.js";
 
 export class SqliteStore implements Store {
   private db: Database.Database;
@@ -42,11 +42,28 @@ export class SqliteStore implements Store {
         seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS posts_status_idx ON posts(status);
+      CREATE INDEX IF NOT EXISTS posts_source_url_idx ON posts(source_url);
       CREATE TABLE IF NOT EXISTS editorial_state (
         singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
         awaiting_revision_post_id TEXT REFERENCES posts(id) ON DELETE SET NULL
       );
       INSERT OR IGNORE INTO editorial_state(singleton, awaiting_revision_post_id) VALUES(1, NULL);
+      CREATE TABLE IF NOT EXISTS analytics_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_type TEXT NOT NULL,
+        post_id TEXT,
+        source TEXT,
+        reason TEXT,
+        model TEXT,
+        prompt_tokens INTEGER,
+        completion_tokens INTEGER,
+        total_tokens INTEGER,
+        estimated_cost_usd REAL,
+        meta TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS analytics_events_created_idx ON analytics_events(created_at);
+      CREATE INDEX IF NOT EXISTS analytics_events_type_idx ON analytics_events(event_type);
     `);
   }
 
@@ -62,6 +79,15 @@ export class SqliteStore implements Store {
   async markSeen(hash: string): Promise<void> {
     this.assertOpen();
     this.db.prepare("INSERT OR IGNORE INTO seen_news(url_hash) VALUES (?)").run(hash);
+  }
+
+  async hasActiveSourceUrl(url: string): Promise<boolean> {
+    this.assertOpen();
+    return Boolean(
+      this.db.prepare(
+        "SELECT 1 FROM posts WHERE source_url = ? AND status IN ('pending_review','approved','published') LIMIT 1"
+      ).get(url)
+    );
   }
 
   async createPost(post: NewPost): Promise<Post> {
@@ -110,5 +136,66 @@ export class SqliteStore implements Store {
       "SELECT source_title AS title FROM posts ORDER BY datetime(created_at) DESC, rowid DESC LIMIT ?"
     ).all(limit) as Array<{ title: string }>;
     return rows.map((row) => row.title).filter(Boolean);
+  }
+
+  async logEvent(event: AnalyticsEvent): Promise<void> {
+    this.assertOpen();
+    this.db.prepare(`INSERT INTO analytics_events(
+      event_type, post_id, source, reason, model, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, meta
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      event.eventType,
+      event.postId ?? null,
+      event.source ?? null,
+      event.reason ?? null,
+      event.model ?? null,
+      event.promptTokens ?? null,
+      event.completionTokens ?? null,
+      event.totalTokens ?? null,
+      event.estimatedCostUsd ?? null,
+      event.meta ?? null
+    );
+  }
+
+  async getStats(days = 7): Promise<StatsSummary> {
+    this.assertOpen();
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const countType = (type: string) =>
+      Number((this.db.prepare("SELECT COUNT(*) AS c FROM analytics_events WHERE event_type = ? AND created_at >= ?").get(type, since) as { c: number }).c);
+
+    const rejectRows = this.db.prepare(
+      "SELECT COALESCE(reason, 'other') AS reason, COUNT(*) AS c FROM analytics_events WHERE event_type = 'rejected' AND created_at >= ? GROUP BY reason"
+    ).all(since) as Array<{ reason: string; c: number }>;
+    const rejectReasons: Record<string, number> = {};
+    for (const row of rejectRows) rejectReasons[row.reason] = row.c;
+
+    const sourceRows = this.db.prepare(
+      "SELECT COALESCE(source, 'unknown') AS source, COUNT(*) AS c FROM analytics_events WHERE event_type IN ('draft_created','published') AND created_at >= ? GROUP BY source ORDER BY c DESC LIMIT 8"
+    ).all(since) as Array<{ source: string; c: number }>;
+
+    const usage = this.db.prepare(
+      `SELECT
+         COALESCE(SUM(estimated_cost_usd), 0) AS cost,
+         COALESCE(SUM(total_tokens), 0) AS tokens,
+         COALESCE(SUM(CASE WHEN model LIKE '%image%' OR (prompt_tokens IS NULL OR prompt_tokens = 0) AND estimated_cost_usd > 0 AND total_tokens = 0 THEN 1 ELSE 0 END), 0) AS images
+       FROM analytics_events WHERE event_type = 'openai_usage' AND created_at >= ?`
+    ).get(since) as { cost: number; tokens: number; images: number };
+
+    // Count image usages more reliably via meta
+    const imageCount = Number((this.db.prepare(
+      "SELECT COUNT(*) AS c FROM analytics_events WHERE event_type = 'openai_usage' AND created_at >= ? AND (meta LIKE '%\"kind\":\"image\"%' OR model LIKE '%image%')"
+    ).get(since) as { c: number }).c);
+
+    return {
+      days,
+      drafts: countType("draft_created"),
+      published: countType("published"),
+      rejected: countType("rejected"),
+      llmSkips: countType("llm_skip") + countType("no_news"),
+      rejectReasons,
+      topSources: sourceRows.map((row) => ({ source: row.source, count: row.c })),
+      openaiCostUsd: Number(usage.cost) || 0,
+      openaiTokens: Number(usage.tokens) || 0,
+      openaiImages: imageCount || Number(usage.images) || 0
+    };
   }
 }

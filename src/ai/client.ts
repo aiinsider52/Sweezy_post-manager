@@ -4,82 +4,153 @@ import { config } from "../config.js";
 import type { GeneratedPost, NewsItem, Post } from "../types.js";
 import { formatPostHtml, MAX_POST_TEXT_LENGTH } from "../bot/format-post.js";
 import { logger } from "../logger.js";
-import { buildRevisionPrompt, buildSelectionPrompt, enrichImagePrompt } from "./prompts.js";
+import { buildRevisionPrompt, buildSelectPrompt, buildWritePrompt, enrichImagePrompt } from "./prompts.js";
+import { imageUsageRecord, usageFromCompletion, type UsageRecord } from "./usage.js";
 
-const selectionSchema = z.object({
+const selectSchema = z.object({
   accepted: z.boolean(),
   reason: z.string().default(""),
   selectedUrl: z.string().default(""),
+  category: z.enum(["product", "useful_news", "business", "light", "skip"]).catch("useful_news")
+});
+
+const writeSchema = z.object({
   title: z.string().default(""),
   body: z.string().default(""),
   takeaway: z.string().default(""),
   cta: z.string().default(""),
   imagePrompt: z.string().default(""),
-  category: z.enum(["product", "useful_news", "business", "light", "skip"]).catch("useful_news")
+  category: z.enum(["product", "useful_news", "business", "light"]).catch("useful_news")
 });
-const revisionSchema = z.object({ text: z.string().min(1).max(MAX_POST_TEXT_LENGTH), imagePrompt: z.string(), regenerateImage: z.boolean() });
+
+const revisionSchema = z.object({
+  text: z.string().min(1).max(MAX_POST_TEXT_LENGTH),
+  imagePrompt: z.string(),
+  regenerateImage: z.boolean()
+});
 
 export class AiService {
   private client = new OpenAI({ apiKey: config.OPENAI_API_KEY });
 
-  async selectAndWrite(
+  async selectStory(
     items: NewsItem[],
     recentTitles: string[] = []
-  ): Promise<{ generated: GeneratedPost; item: NewsItem | null }> {
+  ): Promise<{ accepted: boolean; reason: string; item: NewsItem | null; category: GeneratedPost["category"]; usage: UsageRecord }> {
     const completion = await this.client.chat.completions.create({
       model: config.OPENAI_TEXT_MODEL,
-      temperature: 0.75,
+      temperature: 0.6,
       response_format: { type: "json_object" },
-      messages: [{ role: "user", content: buildSelectionPrompt(items, recentTitles) }]
+      messages: [{ role: "user", content: buildSelectPrompt(items, recentTitles) }]
     });
+    const usage = usageFromCompletion(config.OPENAI_TEXT_MODEL, completion.usage);
+    const parsed = selectSchema.parse(JSON.parse(completion.choices[0]?.message.content ?? "{}"));
+    const item = items.find((candidate) => candidate.url === parsed.selectedUrl) ?? null;
+    const accepted = parsed.accepted && Boolean(item) && parsed.category !== "skip";
+    return {
+      accepted,
+      reason: parsed.reason,
+      item,
+      category: parsed.category,
+      usage
+    };
+  }
+
+  async writePost(
+    item: NewsItem,
+    sourceUrl: string,
+    articleText: string | null,
+    preferredCategory?: GeneratedPost["category"]
+  ): Promise<{ generated: GeneratedPost; usage: UsageRecord }> {
+    const completion = await this.client.chat.completions.create({
+      model: config.OPENAI_TEXT_MODEL,
+      temperature: 0.7,
+      response_format: { type: "json_object" },
+      messages: [{ role: "user", content: buildWritePrompt(item, articleText, sourceUrl) }]
+    });
+    const usage = usageFromCompletion(config.OPENAI_TEXT_MODEL, completion.usage);
     const raw = JSON.parse(completion.choices[0]?.message.content ?? "{}") as Record<string, unknown>;
-    // Back-compat if model still returns a single "text" field.
     if ((!raw.title || !raw.body) && typeof raw.text === "string") {
       const plain = String(raw.text);
       const [firstLine, ...rest] = plain.split("\n").map((line) => line.trim()).filter(Boolean);
       raw.title = raw.title || firstLine || "Новина зі Швейцарії";
       raw.body = raw.body || (rest.join("\n\n") || plain);
     }
-    const parsed = selectionSchema.parse(raw);
-    const item = items.find((candidate) => candidate.url === parsed.selectedUrl) ?? null;
-    const accepted = parsed.accepted && Boolean(item) && Boolean(parsed.title.trim()) && Boolean(parsed.body.trim());
-    const category = parsed.category === "skip" ? "useful_news" : parsed.category;
-    const takeaway = (parsed.takeaway || "Збережіть собі й перевірте деталі в офіційному джерелі").slice(0, 130);
-    const text = accepted && item
-      ? formatPostHtml({
-          title: parsed.title.slice(0, 70),
-          body: parsed.body.slice(0, 650),
-          takeaway,
-          cta: (parsed.cta || "Читайте деталі в джерелі та збережіть собі на майбутнє").slice(0, 110),
-          sourceUrl: item.url,
-          sourceLabel: `Джерело · ${item.source}`,
-          category
-        })
-      : "";
+    const parsed = writeSchema.parse(raw);
+    const category =
+      preferredCategory && preferredCategory !== "skip"
+        ? preferredCategory
+        : parsed.category;
+    const takeaway = (parsed.takeaway || "Збережіть собі й перевірте деталі в офіційному джерелі").slice(0, 140);
+    const text = formatPostHtml({
+      title: parsed.title.slice(0, 75),
+      body: parsed.body.slice(0, 900),
+      takeaway,
+      cta: (parsed.cta || "Читайте деталі в джерелі та збережіть собі на майбутнє").slice(0, 120),
+      sourceUrl,
+      sourceLabel: `Джерело · ${item.source}`,
+      category
+    });
     if (text.length > MAX_POST_TEXT_LENGTH) throw new Error(`Generated caption exceeds Telegram limit: ${text.length}`);
+    if (!parsed.title.trim() || !parsed.body.trim()) {
+      return {
+        generated: {
+          accepted: false,
+          reason: "empty title/body from writer",
+          text: "",
+          imagePrompt: "",
+          category: "skip"
+        },
+        usage
+      };
+    }
     return {
       generated: {
-        accepted,
-        reason: parsed.reason,
+        accepted: true,
+        reason: "ok",
         text,
-        imagePrompt: parsed.imagePrompt || "Everyday life in modern Switzerland, cinematic framing",
-        category: parsed.category
+        imagePrompt: parsed.imagePrompt || "Cinematic everyday life moment in modern Switzerland",
+        category
       },
-      item
+      usage
     };
   }
 
-  async revise(post: Post, comment: string) {
+  /** Back-compat helper used by older call sites/tests — select only, no article write. */
+  async selectAndWrite(
+    items: NewsItem[],
+    recentTitles: string[] = []
+  ): Promise<{ generated: GeneratedPost; item: NewsItem | null; usages: UsageRecord[] }> {
+    const selected = await this.selectStory(items, recentTitles);
+    if (!selected.accepted || !selected.item) {
+      return {
+        generated: {
+          accepted: false,
+          reason: selected.reason || "rejected",
+          text: "",
+          imagePrompt: "",
+          category: selected.category
+        },
+        item: null,
+        usages: [selected.usage]
+      };
+    }
+    const written = await this.writePost(selected.item, selected.item.url, null, selected.category);
+    return { generated: written.generated, item: selected.item, usages: [selected.usage, written.usage] };
+  }
+
+  async revise(post: Post, comment: string): Promise<{ text: string; imagePrompt: string; regenerateImage: boolean; usage: UsageRecord }> {
     const completion = await this.client.chat.completions.create({
       model: config.OPENAI_TEXT_MODEL,
-      temperature: 0.3,
+      temperature: 0.35,
       response_format: { type: "json_object" },
       messages: [{ role: "user", content: buildRevisionPrompt(post, comment) }]
     });
-    return revisionSchema.parse(JSON.parse(completion.choices[0]?.message.content ?? "{}"));
+    const usage = usageFromCompletion(config.OPENAI_TEXT_MODEL, completion.usage);
+    const parsed = revisionSchema.parse(JSON.parse(completion.choices[0]?.message.content ?? "{}"));
+    return { ...parsed, usage };
   }
 
-  async generateImage(prompt: string): Promise<Buffer> {
+  async generateImage(prompt: string): Promise<{ buffer: Buffer; usage: UsageRecord }> {
     const started = Date.now();
     const result = await this.client.images.generate({
       model: config.OPENAI_IMAGE_MODEL,
@@ -87,16 +158,17 @@ export class AiService {
       size: "1536x1024",
       quality: "high"
     });
+    const usage = imageUsageRecord(config.OPENAI_IMAGE_MODEL);
     const image = result.data?.[0];
     if (image?.b64_json) {
       logger.info({ ms: Date.now() - started }, "Image generated");
-      return Buffer.from(image.b64_json, "base64");
+      return { buffer: Buffer.from(image.b64_json, "base64"), usage };
     }
     if (image?.url) {
       const response = await fetch(image.url);
       if (!response.ok) throw new Error(`Image download failed: ${response.status}`);
       logger.info({ ms: Date.now() - started }, "Image generated");
-      return Buffer.from(await response.arrayBuffer());
+      return { buffer: Buffer.from(await response.arrayBuffer()), usage };
     }
     throw new Error("OpenAI returned no image data");
   }
