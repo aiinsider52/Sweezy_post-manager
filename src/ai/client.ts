@@ -29,6 +29,20 @@ const revisionSchema = z.object({
   regenerateImage: z.boolean()
 });
 
+const MIN_BODY_CHARS = 480;
+const MIN_BODY_PARAGRAPHS = 3;
+
+function plainBodyStats(body: string): { paragraphs: number; chars: number } {
+  const paragraphs = body.split(/\n+/).map((part) => part.trim()).filter(Boolean);
+  const chars = body.replace(/\*\*|__/g, "").replace(/(?<!\*)\*(?!\*)/g, "").replace(/\s+/g, " ").trim().length;
+  return { paragraphs: paragraphs.length, chars };
+}
+
+function isBodyTooShort(body: string): boolean {
+  const stats = plainBodyStats(body);
+  return stats.paragraphs < MIN_BODY_PARAGRAPHS || stats.chars < MIN_BODY_CHARS;
+}
+
 export class AiService {
   private client = new OpenAI({ apiKey: config.OPENAI_API_KEY });
 
@@ -55,17 +69,19 @@ export class AiService {
     };
   }
 
-  async writePost(
+  private async requestWrite(
     item: NewsItem,
     sourceUrl: string,
     articleText: string | null,
-    preferredCategory?: GeneratedPost["category"]
-  ): Promise<{ generated: GeneratedPost; usage: UsageRecord }> {
+    extraInstruction?: string
+  ): Promise<{ parsed: z.infer<typeof writeSchema>; usage: UsageRecord }> {
+    const base = buildWritePrompt(item, articleText, sourceUrl);
+    const content = extraInstruction ? `${base}\n\nДОДАТКОВА ВИМОГА:\n${extraInstruction}` : base;
     const completion = await this.client.chat.completions.create({
       model: config.OPENAI_TEXT_MODEL,
-      temperature: 0.7,
+      temperature: 0.65,
       response_format: { type: "json_object" },
-      messages: [{ role: "user", content: buildWritePrompt(item, articleText, sourceUrl) }]
+      messages: [{ role: "user", content }]
     });
     const usage = usageFromCompletion(config.OPENAI_TEXT_MODEL, completion.usage);
     const raw = JSON.parse(completion.choices[0]?.message.content ?? "{}") as Record<string, unknown>;
@@ -75,7 +91,37 @@ export class AiService {
       raw.title = raw.title || firstLine || "Новина зі Швейцарії";
       raw.body = raw.body || (rest.join("\n\n") || plain);
     }
-    const parsed = writeSchema.parse(raw);
+    return { parsed: writeSchema.parse(raw), usage };
+  }
+
+  async writePost(
+    item: NewsItem,
+    sourceUrl: string,
+    articleText: string | null,
+    preferredCategory?: GeneratedPost["category"]
+  ): Promise<{ generated: GeneratedPost; usage: UsageRecord }> {
+    let { parsed, usage } = await this.requestWrite(item, sourceUrl, articleText);
+
+    if (isBodyTooShort(parsed.body)) {
+      logger.info({ chars: plainBodyStats(parsed.body).chars, paragraphs: plainBodyStats(parsed.body).paragraphs }, "Body too short — rewriting longer");
+      const expanded = await this.requestWrite(
+        item,
+        sourceUrl,
+        articleText,
+        "Попередня версія була ЗАНАДТО КОРОТКА. Перепиши body: РІВНО 3 абзаци через \\n\\n, мінімум 550 символів. Абзац 1 — факти/цифри; абзац 2 — чому важливо; абзац 3 — що зробити. CTA окремим полем обов'язково."
+      );
+      usage = {
+        ...usage,
+        promptTokens: usage.promptTokens + expanded.usage.promptTokens,
+        completionTokens: usage.completionTokens + expanded.usage.completionTokens,
+        totalTokens: usage.totalTokens + expanded.usage.totalTokens,
+        estimatedCostUsd: usage.estimatedCostUsd + expanded.usage.estimatedCostUsd
+      };
+      if (!isBodyTooShort(expanded.parsed.body) || plainBodyStats(expanded.parsed.body).chars > plainBodyStats(parsed.body).chars) {
+        parsed = expanded.parsed;
+      }
+    }
+
     const category =
       preferredCategory && preferredCategory !== "skip"
         ? preferredCategory
@@ -83,7 +129,7 @@ export class AiService {
     const takeaway = (parsed.takeaway || "Збережіть собі й перевірте деталі в офіційному джерелі").slice(0, 140);
     const text = formatPostHtml({
       title: parsed.title.slice(0, 75),
-      body: parsed.body.slice(0, 900),
+      body: parsed.body.slice(0, 950),
       takeaway,
       cta: (parsed.cta || "Читайте деталі в джерелі та збережіть собі на майбутнє").slice(0, 120),
       sourceUrl,

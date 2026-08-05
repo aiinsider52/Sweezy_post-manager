@@ -8,8 +8,8 @@ const CATEGORY_BADGE: Record<GeneratedPost["category"], string> = {
   skip: "📰"
 };
 
-/** Leave room for the draft badge prefix in admin captions. */
-export const MAX_POST_TEXT_LENGTH = 980;
+/** Leave room for the draft badge prefix in admin captions (~40 chars). Telegram caption max = 1024. */
+export const MAX_POST_TEXT_LENGTH = 990;
 
 export const CHANNEL_SIGNATURE =
   `🇨🇭 Sweezy — Life in Switzerland. Simplified.\n` +

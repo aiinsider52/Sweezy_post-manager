@@ -26,7 +26,8 @@ describe("buildWritePrompt", () => {
       "Full article text with numbers 12% and dates.",
       "https://example.com/article"
     );
-    expect(prompt).toContain("3 абзаци");
+    expect(prompt).toContain("РІВНО 3 абзаци");
+    expect(prompt).toContain("550");
     expect(prompt).toContain("**жирний**");
     expect(prompt).toContain("__підкреслення__");
     expect(prompt).toContain("ЦЕПЛЯЮЧИЙ");

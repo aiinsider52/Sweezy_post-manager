@@ -60,7 +60,7 @@ describe("formatPostHtml", () => {
       sourceLabel: "Джерело · SRF News Switzerland",
       category: "useful_news"
     });
-    expect(html.length).toBeLessThanOrEqual(980);
+    expect(html.length).toBeLessThanOrEqual(990);
     expect(html).toContain(CHANNEL_SIGNATURE);
     expect(html).toContain("<blockquote>💡");
   });
