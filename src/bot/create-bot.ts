@@ -173,7 +173,8 @@ export function createBot(store: Store, ai: AiService, runDraftJob?: () => Promi
       await store.setReviewMessage(id, messageId);
     } catch (error) {
       logger.error({ err: error, postId: id }, "Revision failed");
-      await ctx.reply("❌ Не вдалося переробити. Ваш коментар збережено як активний режим; надішліть його ще раз або /cancel.");
+      const detail = error instanceof Error ? error.message.slice(0, 180) : "невідома помилка";
+      await ctx.reply(`❌ Не вдалося переробити: ${detail}\nСпробуйте ще раз або /cancel.`);
     }
   });
 

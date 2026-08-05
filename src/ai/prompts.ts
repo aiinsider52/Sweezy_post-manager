@@ -92,7 +92,16 @@ export function buildSelectionPrompt(items: NewsItem[], recentTitles: string[] =
   return buildSelectPrompt(items, recentTitles);
 }
 
-export function buildRevisionPrompt(post: Pick<Post, "text" | "imagePrompt" | "sourceUrl">, comment: string): string {
+export function buildRevisionPrompt(
+  post: Pick<Post, "text" | "imagePrompt" | "sourceUrl">,
+  comment: string,
+  maxChars = 960
+): string {
+  const wantsLonger = /мал|корот|довш|длин|longer|short|більш|больше|розшир|расшир|text/i.test(comment);
+  const longerHint = wantsLonger
+    ? `Редактор просить ДОВШИЙ текст. Розшир до РІВНО 3 змістовних абзаців (факти → значення → що робити), насичених конкретикою з оригіналу. Не виходь за ${maxChars} символів HTML. Прибери воду, додай щільні факти.`
+    : `Тримай довжину поля text ≤ ${maxChars} символів (ліміт Telegram caption).`;
+
   return `Ти редагуєш чернетку Telegram-поста українською. Текст уже у HTML для Telegram (дозволені теги: <b>, <i>, <u>, <blockquote>, <a href="">).
 
 Оригінал (HTML):
@@ -100,6 +109,8 @@ ${post.text}
 
 Побажання редактора:
 ${comment}
+
+${longerHint}
 
 Перероби пост строго за побажанням. Не вигадуй фактів. Збережи структуру:
 1) емодзі-категорії + <b>цепляючий заголовок</b>
@@ -111,7 +122,7 @@ ${comment}
 🇨🇭 Sweezy — Life in Switzerland. Simplified.
 <a href="https://t.me/sweezyxswiss">Sweezy</a> | <a href="https://sweezy.world">sweezy.world</a> | Manager <a href="https://t.me/vladyslavarcher">@vladyslavarcher</a> <a href="https://t.me/yuliiaarcher">@yuliiaarcher</a> 🏹
 
-До 1024 символів разом із розміткою.
+Жорсткий ліміт: поле text максимум ${maxChars} символів разом із HTML-розміткою.
 
 Якщо потрібна нова картинка — новий англомовний WOW imagePrompt (dramatic light, strong composition, photorealistic, no text/logos); інакше попередній: ${post.imagePrompt ?? ""}.
 

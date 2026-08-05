@@ -145,3 +145,62 @@ export function formatPostHtml(content: PostContent): string {
 export function formatDraftCaption(postText: string, revisionCount: number): string {
   return `📝 <b>ЧЕРНЕТКА</b> · ред. #${revisionCount + 1}\n\n${postText}`;
 }
+
+/** Max length of post HTML so draft badge + text still fits Telegram's 1024 caption limit. */
+export function maxPostTextForRevision(revisionCount: number): number {
+  const prefixLen = formatDraftCaption("", revisionCount + 1).length;
+  return Math.max(600, 1024 - prefixLen);
+}
+
+/**
+ * Soft-trim an already-built HTML caption to fit Telegram limits,
+ * preferring to keep signature, source and takeaway.
+ */
+export function clampPostHtml(html: string, maxLength = MAX_POST_TEXT_LENGTH): string {
+  let text = html.trim();
+  if (text.length <= maxLength) return text;
+
+  const signatureIdx = text.lastIndexOf("🇨🇭");
+  const signature = signatureIdx >= 0 ? text.slice(signatureIdx).trim() : CHANNEL_SIGNATURE;
+  let head = signatureIdx >= 0 ? text.slice(0, signatureIdx).trimEnd() : text;
+
+  const pullTail = (pattern: RegExp): string => {
+    const match = head.match(pattern);
+    if (!match) return "";
+    head = head.slice(0, head.length - match[0].length).trimEnd();
+    return match[0].trim();
+  };
+
+  const source = pullTail(/\n🔗 [\s\S]*$/);
+  const takeaway = pullTail(/\n<blockquote>[\s\S]*?<\/blockquote>\s*$/);
+  const cta = pullTail(/\n👉 [\s\S]*$/);
+
+  const rebuild = (body: string, includeCta: boolean): string => {
+    const blocks = [body.trim()];
+    if (takeaway) blocks.push(takeaway);
+    if (includeCta && cta) blocks.push(cta);
+    if (source) blocks.push(source);
+    blocks.push(signature);
+    return blocks.join("\n\n").trim();
+  };
+
+  const paragraphs = head.split(/\n\n+/).map((part) => part.trim()).filter(Boolean);
+  while (paragraphs.length > 1) {
+    const candidate = rebuild(paragraphs.join("\n\n"), true);
+    if (candidate.length <= maxLength) return candidate;
+    // Keep title (first block), drop last body paragraph.
+    paragraphs.pop();
+  }
+
+  let body = paragraphs[0] ?? head;
+  let candidate = rebuild(body, false);
+  while (candidate.length > maxLength && body.length > 120) {
+    body = body.slice(0, Math.max(120, body.length - 50));
+    const cut = body.lastIndexOf(" ");
+    if (cut > 100) body = body.slice(0, cut);
+    body = body.replace(/<[^>]*$/u, "").trim();
+    candidate = rebuild(body, false);
+  }
+
+  return candidate.length <= maxLength ? candidate : candidate.slice(0, maxLength);
+}

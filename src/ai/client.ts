@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { z } from "zod";
 import { config } from "../config.js";
 import type { GeneratedPost, NewsItem, Post } from "../types.js";
-import { formatPostHtml, MAX_POST_TEXT_LENGTH } from "../bot/format-post.js";
+import { formatPostHtml, MAX_POST_TEXT_LENGTH, clampPostHtml, formatDraftCaption, maxPostTextForRevision } from "../bot/format-post.js";
 import { logger } from "../logger.js";
 import { buildRevisionPrompt, buildSelectPrompt, buildWritePrompt, enrichImagePrompt } from "./prompts.js";
 import { imageUsageRecord, usageFromCompletion, type UsageRecord } from "./usage.js";
@@ -24,9 +24,9 @@ const writeSchema = z.object({
 });
 
 const revisionSchema = z.object({
-  text: z.string().min(1).max(MAX_POST_TEXT_LENGTH),
-  imagePrompt: z.string(),
-  regenerateImage: z.boolean()
+  text: z.string().min(1).max(4000),
+  imagePrompt: z.string().default(""),
+  regenerateImage: z.boolean().default(false)
 });
 
 const MIN_BODY_CHARS = 480;
@@ -185,15 +185,29 @@ export class AiService {
   }
 
   async revise(post: Post, comment: string): Promise<{ text: string; imagePrompt: string; regenerateImage: boolean; usage: UsageRecord }> {
+    const limit = maxPostTextForRevision(post.revisionCount);
     const completion = await this.client.chat.completions.create({
       model: config.OPENAI_TEXT_MODEL,
-      temperature: 0.35,
+      temperature: 0.4,
       response_format: { type: "json_object" },
-      messages: [{ role: "user", content: buildRevisionPrompt(post, comment) }]
+      messages: [{ role: "user", content: buildRevisionPrompt(post, comment, limit) }]
     });
     const usage = usageFromCompletion(config.OPENAI_TEXT_MODEL, completion.usage);
     const parsed = revisionSchema.parse(JSON.parse(completion.choices[0]?.message.content ?? "{}"));
-    return { ...parsed, usage };
+    let text = clampPostHtml(parsed.text.trim(), Math.min(MAX_POST_TEXT_LENGTH, limit));
+    // Guarantee draft caption fits even if revisionCount display grows.
+    let draftLen = formatDraftCaption(text, post.revisionCount + 1).length;
+    while (draftLen > 1024 && text.length > 400) {
+      text = clampPostHtml(text, text.length - 40);
+      draftLen = formatDraftCaption(text, post.revisionCount + 1).length;
+    }
+    if (!text.trim()) throw new Error("Revision returned empty text");
+    return {
+      text,
+      imagePrompt: parsed.imagePrompt || post.imagePrompt || "Cinematic everyday life moment in modern Switzerland",
+      regenerateImage: parsed.regenerateImage,
+      usage
+    };
   }
 
   async generateImage(prompt: string): Promise<{ buffer: Buffer; usage: UsageRecord }> {

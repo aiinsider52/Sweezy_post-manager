@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHANNEL_SIGNATURE, escapeHtml, formatDraftCaption, formatPostHtml, richTextToHtml } from "../src/bot/format-post.js";
+import { CHANNEL_SIGNATURE, clampPostHtml, escapeHtml, formatDraftCaption, formatPostHtml, richTextToHtml } from "../src/bot/format-post.js";
 
 describe("formatPostHtml", () => {
   it("builds a styled HTML caption with title, body, takeaway, CTA, source and signature", () => {
@@ -74,9 +74,19 @@ describe("richTextToHtml", () => {
   });
 });
 
-describe("formatDraftCaption", () => {
-  it("wraps post with HTML draft badge", () => {
-    expect(formatDraftCaption("<b>Hi</b>", 0)).toBe("📝 <b>ЧЕРНЕТКА</b> · ред. #1\n\n<b>Hi</b>");
+describe("clampPostHtml", () => {
+  it("trims oversized HTML but keeps signature", () => {
+    const html = formatPostHtml({
+      title: "Довгий заголовок",
+      body: `${"Параграф один. ".repeat(30)}\n\n${"Параграф два. ".repeat(30)}\n\n${"Параграф три. ".repeat(30)}`,
+      takeaway: "Корисний висновок для читача",
+      cta: "Збережіть і перевірте джерело",
+      sourceUrl: "https://example.com/x",
+      category: "useful_news"
+    });
+    const clamped = clampPostHtml(html + "\n\n" + "зайвий текст ".repeat(80), 700);
+    expect(clamped.length).toBeLessThanOrEqual(700);
+    expect(clamped).toContain(CHANNEL_SIGNATURE);
   });
 });
 

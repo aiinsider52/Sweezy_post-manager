@@ -43,6 +43,13 @@ describe("buildRevisionPrompt", () => {
     expect(prompt).toContain("https://example.com/news");
     expect(prompt).toContain("regenerateImage");
     expect(prompt).toContain("<u>");
+    expect(prompt).toContain("960");
+  });
+
+  it("adds longer-text guidance for short-post comments", () => {
+    const prompt = buildRevisionPrompt({ text: "Старий", sourceUrl: "https://example.com", imagePrompt: "x" }, "мало текста, пост слишком короткий", 900);
+    expect(prompt).toContain("ДОВШИЙ");
+    expect(prompt).toContain("900");
   });
 });
 
